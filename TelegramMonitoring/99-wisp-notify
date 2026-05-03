@@ -1,0 +1,36 @@
+#!/bin/sh
+# File: /etc/hotplug.d/iface/99-wisp-notify
+
+[ "$INTERFACE" = "wwan" ] || exit 0
+
+if [ "$ACTION" = "ifdown" ]; then
+    # Catat waktu putus (timestamp) ke folder /tmp (berada di RAM)
+    date +%s > /tmp/wisp_down_time
+
+elif [ "$ACTION" = "ifup" ]; then
+    # Eksekusi sub-shell di background (&) agar tidak memblokir antrean sistem OpenWrt
+    (
+        # Looping untuk menahan eksekusi sampai internet benar-benar ada (Ping sukses)
+        # Mencoba maksimal 30 kali (sekitar 60 detik)
+        count=0
+        while ! ping -c 1 -W 2 8.8.8.8 > /dev/null 2>&1; do
+            sleep 2
+            count=$((count+1))
+            [ $count -ge 30 ] && exit 1 
+        done
+
+        # Jika sukses tembus internet, cek apakah ada histori WISP putus
+        if [ -f /tmp/wisp_down_time ]; then
+            DOWN_TIME=$(cat /tmp/wisp_down_time)
+            UP_TIME=$(date +%s)
+            DURASI=$((UP_TIME - DOWN_TIME))
+            MENIT=$((DURASI / 60))
+            DETIK=$((DURASI % 60))
+            
+            rm /tmp/wisp_down_time
+            /usr/bin/telegram_notify.sh "UPLINK" "WISP (wwan) Pulih %0AInternet sempat terputus selama ${MENIT} menit ${DETIK} detik"
+        else
+            /usr/bin/telegram_notify.sh "UPLINK" "WISP (wwan) Terhubung"
+        fi
+    ) &
+fi

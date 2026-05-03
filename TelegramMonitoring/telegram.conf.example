@@ -1,0 +1,6 @@
+# Telegram Notification Config
+# Copy this file to telegram.conf and fill in your actual URL:
+#   cp telegram.conf.example telegram.conf
+#
+# On the router, place the config at: /etc/telegram.conf
+GAS_URL="https://script.google.com/macros/s/YOUR_SCRIPT_ID_HERE/exec"
