@@ -2,64 +2,61 @@
 # =============================================================================
 #  OpenWrt Universal Setup Script — WISP Mode
 #  Compatible: OpenWrt 23.05+ (apk package manager)
-#
-#  USAGE:
-#  1. Edit variables in Part 0 to match your hardware
-#  2. On your PC: scp -O OpenWrtSetup.sh root@192.168.11.1:/tmp/
-#  3. chmod +x /tmp/OpenWrtSetup.sh && sh /tmp/OpenWrtSetup.sh
-#  4. After reboot, run 'tailscale up ...' if needed
-#  5. On your PC: scp -O OpenWrtSetupTest.sh root@192.168.11.1:/tmp/
-#  6. chmod +x /tmp/OpenWrtSetupTest.sh && sh /tmp/OpenWrtSetupTest.sh
 # =============================================================================
 
-: <<'TROUBLESHOOTING'
-"Operation not permitted" in wget is almost always an SSL failure caused by a
-wrong system clock. OpenWrt has no RTC battery, so time resets to epoch on boot.
+# --- Strict Mode & Globals ---
+set -u
+START_TIME=$(date +%s)
+LOG_FILE="/tmp/openwrt-setup.log"
 
-Check first:
-  date
-  ping -c3 8.8.8.8
+# --- CLI Arguments ---
+DRY_RUN=0
+NO_REBOOT=0
+AUTO_YES=0
 
-If date shows 1970 / early 2000s — fix the clock via LuCI > System > Time Sync.
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --dry-run) DRY_RUN=1 ;;
+        --no-reboot) NO_REBOOT=1 ;;
+        --yes) AUTO_YES=1 ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
+    esac
+    shift
+done
 
-If ping 8.8.8.8 shows 100% loss, routing isn't up yet. Diagnose with:
-  ifstatus wwan | jsonfilter -e '@.up' -e '@["ipv4-address"][0].address'
-  ip route
+# --- Colors & Logging ---
+RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 
-Common cause — IP subnet conflict:
-  192.168.1.0/24 dev br-lan   src 192.168.1.1    ← LAN
-  192.168.1.0/24 dev phy0-sta0 src 192.168.1.26  ← upstream AP
+_log() {
+    local level=$1; shift
+    local msg="$*"
+    # Print to console with color, append to log without color
+    case "$level" in
+        INFO) printf "${CYAN}[INFO]${NC}  %s\n" "$msg" ;;
+        OK)   printf "${GREEN}[ OK ]${NC}  %s\n" "$msg" ;;
+        WARN) printf "${YELLOW}[WARN]${NC}  %s\n" "$msg" ;;
+        ERR)  printf "${RED}[ ERR ]${NC}  %s\n" "$msg" >&2 ;;
+        STEP) printf "\n${BOLD}>>> %s${NC}\n" "$msg" ;;
+        *)    printf "%s\n" "$msg" ;;
+    esac
+    # Remove ansi escape codes for the log file
+    echo "[$level] $msg" | sed -E 's/\x1B\[[0-9;]*m//g' >> "$LOG_FILE"
+}
 
-Both subnets are the same — kernel treats upstream traffic as local. Fix by
-changing the LAN subnet:
-  uci set network.lan.ipaddr='192.168.11.1'
-  uci set network.lan.netmask='255.255.255.0'
-  uci commit network && /etc/init.d/network restart
-TROUBLESHOOTING
+log_info()  { _log INFO "$*"; }
+log_ok()    { _log OK "$*"; }
+log_warn()  { _log WARN "$*"; }
+log_error() { _log ERR "$*"; }
+log_step()  { _log STEP "$*"; }
+_abort()    { log_error "$*"; exit 1; }
 
-# =============================================================================
-# STRICT MODE
-# =============================================================================
-set -u          # treat unset variables as errors
-# Note: we intentionally do NOT use set -e globally because some uci -q
-# delete commands legitimately return 1 when the key doesn't exist.
+# Initialize log file
+> "$LOG_FILE"
+log_info "Starting OpenWrt Setup Script (WISP Mode)"
 
-# =============================================================================
-# LOGGING HELPERS
-# =============================================================================
-RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'
-CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
-
-log_info()  { printf "${CYAN}[INFO]${NC}  %s\n" "$*"; }
-log_ok()    { printf "${GREEN}[ OK ]${NC}  %s\n" "$*"; }
-log_warn()  { printf "${YELLOW}[WARN]${NC}  %s\n" "$*"; }
-log_error() { printf "${RED}[ ERR ]${NC}  %s\n" "$*" >&2; }
-log_step()  { printf "\n${BOLD}>>> %s${NC}\n" "$*"; }
-
-# Trap for unexpected exits
 _on_exit() {
     rc=$?
-    [ $rc -ne 0 ] && log_error "Script exited unexpectedly (exit code $rc). Check output above."
+    [ $rc -ne 0 ] && log_error "Script exited unexpectedly (exit code $rc)."
 }
 trap _on_exit EXIT
 
@@ -67,55 +64,48 @@ trap _on_exit EXIT
 # PART 0 — CONFIGURATION
 # =============================================================================
 
+# --- System ---
+HOSTNAME="OpenWrt-WISP"
+TIMEZONE="WIB-7"         # e.g., WIB-7, WITA-8, WIT-9
+ZONENAME="Asia/Jakarta"  # e.g., Asia/Jakarta, Asia/Makassar
+LAN_IP="192.168.11.1"    # Avoids conflict with upstream 192.168.1.1
+LAN_NETMASK="255.255.255.0"
+
 # --- Wireless WAN Interface (WISP/STA) ---
-# Check interface name: iw dev | grep -A2 'type managed'
-# Or:  ubus call network.wireless status | jsonfilter -e '@.*.interfaces[@.config.mode="sta"].ifname'
 WWAN_IFACE="phy0-sta0"
 
 # --- Radio Names ---
-# Check with: uci show wireless | grep "\.type='mac80211'"
 RADIO_2G="radio0"
 RADIO_5G="radio1"       # Leave empty if no 5 GHz radio: RADIO_5G=""
 
-# --- Wireless 2.4 GHz ---
-CH_2G="6"
-HTMODE_2G="HE20"        # HT20 | HT40
-TXPWR_2G="13"           # dBm — check hw limit: iw phy phy0 info | grep -A5 'Supported TX'
+# --- Wireless Config ---
+WIFI_SSID_2G="OpenWrt-WISP-2G"
+WIFI_SSID_5G="OpenWrt-WISP-5G"
+WIFI_KEY="SuperSecretKey" # Change this!
 
-# --- Wireless 5 GHz ---
+CH_2G="6"
+HTMODE_2G="HE20"
+TXPWR_2G="13"
+
 CH_5G="157"
-HTMODE_5G="HE80"        # VHT40 | VHT80 (WiFi 5 / AC) | HE80 (WiFi 6 / AX)
-TXPWR_5G="17"           # dBm
+HTMODE_5G="HE80"
+TXPWR_5G="17"
 
 COUNTRY="ID"
-
-# --- LAN Port Assignment ---
-# Leave empty ("") to keep OpenWrt defaults.
-# Check available ports: uci show network | grep ports
-# Example: LAN_PORTS="lan1 lan2 lan3 lan4"
-LAN_PORTS=""
+LAN_PORTS=""            # Leave empty to keep defaults
 
 # --- SQM CAKE Bandwidth (kbps) ---
-# Use ~95% of actual speedtest result.
-# Formula: result_mbps * 1000 * 0.95
 DL_KBPS="23000"
 UL_KBPS="11000"
 
 # --- SQM MTU / Overhead ---
-# PPPoE:            overhead=8,  linklayer=ethernet
-# WISP via DHCP:    overhead=44, linklayer=ethernet
-# Check actual MTU: ip link show; ping -M do -s 1472 8.8.8.8
 SQM_OVERHEAD="44"
 SQM_LINKLAYER="ethernet"
-SQM_MTU="1480"          # Also used as MTU for the wwan interface
+SQM_MTU="1480"
 
 # --- ZRAM ---
-# Recommended: ~50% of physical RAM.
-# Check total RAM: free | awk '/Mem/{printf "%.0f MB\n", $2/1024}'
-# Check algorithms: cat /sys/block/zram0/comp_algorithm
-# Leave empty ("") to skip: ZRAM_MB=""
 ZRAM_MB="128"
-ZRAM_ALGO="lzo-rle"     # lzo-rle | zstd | lz4
+ZRAM_ALGO="lzo-rle"
 
 # --- DNS over HTTPS ---
 DOH_PRIMARY_BOOTSTRAP="1.1.1.1,1.0.0.1"
@@ -126,30 +116,26 @@ DOH_SECONDARY_BOOTSTRAP="9.9.9.9,149.112.112.112"
 DOH_SECONDARY_URL="https://dns.quad9.net/dns-query"
 DOH_SECONDARY_PORT="5054"
 
-# DOH_SECONDARY_BOOTSTRAP="8.8.8.8,8.8.4.4"
-# DOH_SECONDARY_URL="https://dns.google/dns-query"
-# DOH_SECONDARY_PORT="5054"
+# --- NTP Servers ---
+NTP_SERVERS="0.id.pool.ntp.org 1.id.pool.ntp.org 2.id.pool.ntp.org 3.id.pool.ntp.org"
 
 # --- Feature Toggles (1=enabled, 0=disabled) ---
 ENABLE_TAILSCALE=1
 ENABLE_ADBLOCK_LEAN=1
-ENABLE_WANUSB_ZONE=0    # USB modem/dongle fallback WAN zone (not needed for pure WISP)
+ENABLE_WANUSB_ZONE=0
 DISABLE_IPV6=1
 
 # =============================================================================
-# VARIABLE VALIDATION — fail fast before touching any config
+# PRE-FLIGHT CHECKS
 # =============================================================================
-log_step "Validating configuration variables..."
+log_step "Pre-flight Checks..."
 
-_abort() { log_error "$*"; exit 1; }
+[ "$(id -u)" -ne 0 ] && _abort "This script must be run as root."
+[ ! -x "/sbin/uci" ] && _abort "UCI not found. Are you running this on OpenWrt?"
 
-[ -z "$WWAN_IFACE"    ] && _abort "WWAN_IFACE is not set."
-[ -z "$RADIO_2G"      ] && _abort "RADIO_2G is not set."
-[ -z "$DL_KBPS"       ] && _abort "DL_KBPS is not set."
-[ -z "$UL_KBPS"       ] && _abort "UL_KBPS is not set."
-[ -z "$COUNTRY"       ] && _abort "COUNTRY is not set."
-
-# Numeric checks
+# Variable Validation
+[ -z "$WWAN_IFACE" ] && _abort "WWAN_IFACE is not set."
+[ -z "$RADIO_2G" ] && _abort "RADIO_2G is not set."
 for var_name in DL_KBPS UL_KBPS SQM_OVERHEAD SQM_MTU TXPWR_2G; do
     eval val=\$$var_name
     case "$val" in
@@ -157,172 +143,215 @@ for var_name in DL_KBPS UL_KBPS SQM_OVERHEAD SQM_MTU TXPWR_2G; do
     esac
 done
 
-log_ok "All required variables look good."
+# Clock Check & Fix
+current_year=$(date +%Y)
+if [ "$current_year" -lt 2024 ]; then
+    log_warn "System clock is incorrect (Year $current_year). Attempting to fix..."
+    # Start network if needed so we can ping
+    if ! ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1; then
+        log_warn "No internet to fix clock. SSL downloads will likely fail."
+    else
+        ntpd -q -p pool.ntp.org
+        log_ok "Clock updated to: $(date)"
+    fi
+else
+    log_ok "System clock is sane ($current_year)."
+fi
 
 # =============================================================================
-# BACKUP — snapshot current UCI config before changes
+# CONFIRMATION
 # =============================================================================
-BACKUP_DIR="/tmp/uci-backup-$(date +%Y%m%d-%H%M%S)"
-mkdir -p "$BACKUP_DIR"
-for ns in network wireless sqm system dhcp https-dns-proxy firewall; do
-    uci export "$ns" > "$BACKUP_DIR/${ns}.uci" 2>/dev/null || true
-done
-log_ok "UCI backup saved to: $BACKUP_DIR"
+if [ "$DRY_RUN" = "1" ]; then
+    log_info "DRY-RUN MODE ENABLED. No changes will be made."
+elif [ "$AUTO_YES" = "0" ]; then
+    printf "\n${BOLD}Configuration Summary:${NC}\n"
+    printf "  Hostname  : %s\n" "$HOSTNAME"
+    printf "  LAN IP    : %s\n" "$LAN_IP"
+    printf "  WiFi 2.4G : %s (Ch %s)\n" "$WIFI_SSID_2G" "$CH_2G"
+    printf "  WiFi 5G   : %s (Ch %s)\n" "$WIFI_SSID_5G" "$CH_5G"
+    printf "  SQM CAKE  : %s DL / %s UL\n" "$DL_KBPS" "$UL_KBPS"
+    printf "  ZRAM      : %s MB\n" "${ZRAM_MB:-Disabled}"
+    printf "\n"
+    read -p "Proceed with configuration? (y/N) " confirm
+    case "$confirm" in
+        [yY]|[yY][eE][sS]) ;;
+        *) log_info "Aborted by user."; exit 0 ;;
+    esac
+fi
+
+run_uci() {
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "  [DRY-RUN] uci $*"
+    else
+        uci "$@"
+    fi
+}
+
+run_cmd() {
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "  [DRY-RUN] $*"
+    else
+        "$@"
+    fi
+}
+
+# =============================================================================
+# BACKUP
+# =============================================================================
+if [ "$DRY_RUN" = "0" ]; then
+    BACKUP_DIR="/tmp/uci-backup-$(date +%Y%m%d-%H%M%S)"
+    mkdir -p "$BACKUP_DIR"
+    for ns in network wireless sqm system dhcp https-dns-proxy firewall; do
+        uci export "$ns" > "$BACKUP_DIR/${ns}.uci" 2>/dev/null || true
+    done
+    log_ok "UCI backup saved to: $BACKUP_DIR"
+fi
 
 # =============================================================================
 # PART 1 — PACKAGES
 # =============================================================================
 log_step "[1/10] Installing packages..."
+run_cmd apk update || log_warn "apk update failed, continuing anyway..."
 
-apk update || _abort "apk update failed — check network/time sync."
+run_cmd apk add ca-bundle ca-certificates curl sqm-scripts luci-app-sqm kmod-sched-cake https-dns-proxy luci-app-https-dns-proxy watchcat nano
 
-# SSL certs + curl first (needed for adblock-lean download later)
-apk add ca-bundle ca-certificates curl
-
-# SQM, DoH, connection watchdog
-# kmod-sched-fq-codel is built-in on OpenWrt 25.x kernels — no need to install
-apk add \
-    sqm-scripts luci-app-sqm kmod-sched-cake \
-    https-dns-proxy luci-app-https-dns-proxy \
-    watchcat nano
-
-# Tailscale (optional)
 if [ "$ENABLE_TAILSCALE" = "1" ]; then
-    apk add tailscale && log_ok "Tailscale installed." \
-        || log_warn "Tailscale install failed — continuing without it."
+    run_cmd apk add tailscale && log_ok "Tailscale installed." || log_warn "Tailscale install failed."
 fi
 
-# Remove bloatware — check existence first to avoid errors on clean builds
-BLOAT_PKGS="
-    luci-app-statistics rrdtool1 librrd1 libgd libjpeg-turbo libpng libwebp
-    netdata mwan3 luci-app-mwan3
-    ttyd luci-app-ttyd
-    vnstat2 vnstat2ri adblock luci-app-adblock
-"
+BLOAT_PKGS="luci-app-statistics rrdtool1 librrd1 libgd libjpeg-turbo libpng libwebp netdata mwan3 luci-app-mwan3 ttyd luci-app-ttyd vnstat2 vnstat2ri adblock luci-app-adblock"
 for pkg in $BLOAT_PKGS; do
     if apk info "$pkg" >/dev/null 2>&1; then
-        apk del "$pkg" && log_ok "Removed: $pkg"
+        run_cmd apk del "$pkg"
     fi
 done
 
-# Remove any remaining collectd packages
 for pkg in $(apk info 2>/dev/null | grep "^collectd"); do
-    apk del "$pkg" && log_ok "Removed: $pkg"
+    run_cmd apk del "$pkg"
 done
-
 log_ok "Package setup complete."
 
 # =============================================================================
-# PART 2 — NETWORK (WISP Mode)
+# PART 2 — SYSTEM & NTP
 # =============================================================================
-log_step "[2/10] Configuring network..."
+log_step "[2/10] Configuring system, hostname & NTP..."
+run_uci set system.@system[0].hostname="$HOSTNAME"
+run_uci set system.@system[0].timezone="$TIMEZONE"
+run_uci set system.@system[0].zonename="$ZONENAME"
 
-uci -q delete network.wan  || true
-uci -q delete network.wan6 || true
+run_uci -q delete system.ntp.server || true
+for srv in $NTP_SERVERS; do
+    run_uci add_list system.ntp.server="$srv"
+done
+run_uci set system.ntp.enabled='1'
+run_uci set system.ntp.enable_server='0'
+run_uci commit system
+log_ok "System config committed."
 
-# Assign LAN ports only if explicitly defined
-[ -n "$LAN_PORTS" ] && uci set network.@device[0].ports="$LAN_PORTS"
+# =============================================================================
+# PART 3 — NETWORK (LAN & WISP)
+# =============================================================================
+log_step "[3/10] Configuring network..."
+run_uci -q delete network.wan  || true
+run_uci -q delete network.wan6 || true
 
-# WISP upstream interface
-uci set network.wwan='interface'
-uci set network.wwan.proto='dhcp'
-uci set network.wwan.device="$WWAN_IFACE"
-uci set network.wwan.mtu="$SQM_MTU"
-uci set network.wwan.peerdns='0'
-uci -q delete network.wwan.dns || true
-uci add_list network.wwan.dns='8.8.8.8'
-uci add_list network.wwan.dns='1.1.1.1'
+[ -n "$LAN_PORTS" ] && run_uci set network.@device[0].ports="$LAN_PORTS"
 
-uci set network.globals.packet_steering='2'
+# LAN Config
+run_uci set network.lan.ipaddr="$LAN_IP"
+run_uci set network.lan.netmask="$LAN_NETMASK"
 
-[ "$DISABLE_IPV6" = "1" ] && uci set network.lan.ipv6='0'
+# WISP Config
+run_uci set network.wwan='interface'
+run_uci set network.wwan.proto='dhcp'
+run_uci set network.wwan.device="$WWAN_IFACE"
+run_uci set network.wwan.mtu="$SQM_MTU"
+run_uci set network.wwan.peerdns='0'
+run_uci -q delete network.wwan.dns || true
+run_uci add_list network.wwan.dns='8.8.8.8'
+run_uci add_list network.wwan.dns='1.1.1.1'
 
-uci commit network
+run_uci set network.globals.packet_steering='2'
+[ "$DISABLE_IPV6" = "1" ] && run_uci set network.lan.ipv6='0'
+
+run_uci commit network
 log_ok "Network config committed."
 
 # =============================================================================
-# PART 3 — WIRELESS
+# PART 4 — WIRELESS
 # =============================================================================
-log_step "[3/10] Configuring wireless..."
+log_step "[4/10] Configuring wireless..."
 
-# 2.4 GHz
-uci set wireless.${RADIO_2G}.channel="$CH_2G"
-uci set wireless.${RADIO_2G}.htmode="$HTMODE_2G"
-uci set wireless.${RADIO_2G}.txpower="$TXPWR_2G"
-uci set wireless.${RADIO_2G}.country="$COUNTRY"
-uci set wireless.${RADIO_2G}.disabled='0'
-
-# 5 GHz (skip if RADIO_5G is empty)
-if [ -n "$RADIO_5G" ]; then
-    uci set wireless.${RADIO_5G}.channel="$CH_5G"
-    uci set wireless.${RADIO_5G}.htmode="$HTMODE_5G"
-    uci set wireless.${RADIO_5G}.txpower="$TXPWR_5G"
-    uci set wireless.${RADIO_5G}.country="$COUNTRY"
-    uci set wireless.${RADIO_5G}.disabled='0'
-    log_ok "5 GHz radio configured."
-else
-    log_warn "RADIO_5G is empty — skipping 5 GHz configuration."
-fi
-
-# Force SAE-Mixed (WPA2/WPA3) on all AP interfaces
-ap_count=0
-for iface in $(uci show wireless | grep "mode='ap'" | awk -F'.' '{print $2}'); do
-    uci set wireless.${iface}.encryption='sae-mixed'
-    ap_count=$((ap_count + 1))
+# Ensure at least one AP interface exists per radio and set SSID/Key
+for radio in $RADIO_2G $RADIO_5G; do
+    [ -z "$radio" ] && continue
+    # Configure the radio hardware
+    run_uci set wireless.${radio}.country="$COUNTRY"
+    run_uci set wireless.${radio}.disabled='0'
+    
+    if [ "$radio" = "$RADIO_2G" ]; then
+        run_uci set wireless.${radio}.channel="$CH_2G"
+        run_uci set wireless.${radio}.htmode="$HTMODE_2G"
+        run_uci set wireless.${radio}.txpower="$TXPWR_2G"
+        ssid_var="$WIFI_SSID_2G"
+    else
+        run_uci set wireless.${radio}.channel="$CH_5G"
+        run_uci set wireless.${radio}.htmode="$HTMODE_5G"
+        run_uci set wireless.${radio}.txpower="$TXPWR_5G"
+        ssid_var="$WIFI_SSID_5G"
+    fi
+    
+    # Configure the AP interface(s) attached to this radio
+    for iface in $(uci show wireless | grep "mode='ap'" | grep "device='${radio}'" | awk -F'.' '{print $2}'); do
+        run_uci set wireless.${iface}.ssid="$ssid_var"
+        run_uci set wireless.${iface}.encryption='sae-mixed'
+        run_uci set wireless.${iface}.key="$WIFI_KEY"
+    done
 done
-log_ok "SAE-Mixed encryption applied to $ap_count AP interface(s)."
 
-uci commit wireless
+run_uci commit wireless
 log_ok "Wireless config committed."
 
 # =============================================================================
-# PART 4 — SQM CAKE
+# PART 5 — SQM CAKE
 # =============================================================================
-log_step "[4/10] Configuring SQM CAKE..."
-
-# Create queue section if it doesn't exist (fresh installs have no default entry)
-uci -q get sqm.@queue[0] >/dev/null 2>&1 || uci add sqm queue
-
-uci set sqm.@queue[0].enabled='1'
-uci set sqm.@queue[0].interface="$WWAN_IFACE"
-uci set sqm.@queue[0].download="$DL_KBPS"
-uci set sqm.@queue[0].upload="$UL_KBPS"
-uci set sqm.@queue[0].qdisc='cake'
-uci set sqm.@queue[0].script='piece_of_cake.qos'
-uci set sqm.@queue[0].linklayer="$SQM_LINKLAYER"
-uci set sqm.@queue[0].overhead="$SQM_OVERHEAD"
-uci set sqm.@queue[0].linklayer_advanced='1'
-uci set sqm.@queue[0].tcMPU='84'
-
-uci commit sqm
-log_ok "SQM CAKE config committed (DL: ${DL_KBPS} kbps / UL: ${UL_KBPS} kbps)."
+log_step "[5/10] Configuring SQM CAKE..."
+uci -q get sqm.@queue[0] >/dev/null 2>&1 || run_uci add sqm queue
+run_uci set sqm.@queue[0].enabled='1'
+run_uci set sqm.@queue[0].interface="$WWAN_IFACE"
+run_uci set sqm.@queue[0].download="$DL_KBPS"
+run_uci set sqm.@queue[0].upload="$UL_KBPS"
+run_uci set sqm.@queue[0].qdisc='cake'
+run_uci set sqm.@queue[0].script='piece_of_cake.qos'
+run_uci set sqm.@queue[0].linklayer="$SQM_LINKLAYER"
+run_uci set sqm.@queue[0].overhead="$SQM_OVERHEAD"
+run_uci set sqm.@queue[0].linklayer_advanced='1'
+run_uci set sqm.@queue[0].tcMPU='84'
+run_uci commit sqm
+log_ok "SQM config committed."
 
 # =============================================================================
-# PART 5 — SYSTEM (ZRAM + Watchcat + sysctl)
+# PART 6 — SYSTEM TUNING (ZRAM, Watchcat, sysctl)
 # =============================================================================
-log_step "[5/10] Configuring system settings..."
+log_step "[6/10] Configuring ZRAM and Watchcat..."
 
-# --- ZRAM (23.05+ apk builds — configured via kmod-zram + sysctl) ---
-if [ -n "$ZRAM_MB" ]; then
-    # Install kmod if not already present
+if [ -n "$ZRAM_MB" ] && [ "$DRY_RUN" = "0" ]; then
     apk add kmod-zram 2>/dev/null || true
-    # Size in bytes
     ZRAM_BYTES=$(( ZRAM_MB * 1024 * 1024 ))
-    # Write a dedicated init script since there's no stock one
     cat > /etc/init.d/zram-setup << ZRAMEOF
 #!/bin/sh /etc/rc.common
 START=12
 STOP=89
 USE_PROCD=1
+# Notice: \${ZRAM_ALGO} and \${ZRAM_BYTES} are expanded at script generation time. This is intentional.
 start_service() {
     modprobe zram 2>/dev/null || true
     sleep 1
-    [ -b /dev/zram0 ] || { logger -t zram "ERROR: /dev/zram0 not found"; return 1; }
+    [ -b /dev/zram0 ] || return 1
     echo ${ZRAM_ALGO} > /sys/block/zram0/comp_algorithm
     echo ${ZRAM_BYTES} > /sys/block/zram0/disksize
     mkswap /dev/zram0
     swapon -p 10 /dev/zram0
-    logger -t zram "ZRAM swap active: ${ZRAM_MB}MB (${ZRAM_ALGO})"
 }
 stop_service() {
     swapoff /dev/zram0 2>/dev/null || true
@@ -331,303 +360,224 @@ stop_service() {
 ZRAMEOF
     chmod +x /etc/init.d/zram-setup
     /etc/init.d/zram-setup enable
-    log_ok "ZRAM init script written and enabled (${ZRAM_MB} MB, ${ZRAM_ALGO})."
+    log_ok "ZRAM init script configured."
 fi
 
-uci set system.@system[0].conloglevel='8'
-uci set system.@system[0].cronloglevel='9'
+run_uci set system.@system[0].conloglevel='8'
+run_uci set system.@system[0].cronloglevel='9'
 
-# Watchcat — restart wwan interface on connectivity loss
-uci -q delete system.@watchcat[0] || true
-uci add system watchcat
-uci set system.@watchcat[-1].mode='restart_iface'
-uci set system.@watchcat[-1].interface='wwan'
-uci set system.@watchcat[-1].pinghosts='8.8.8.8 1.1.1.1'
-uci set system.@watchcat[-1].addressfamily='ipv4'
-uci set system.@watchcat[-1].pingperiod='30'
-uci set system.@watchcat[-1].period='3m'
+# Delete all existing watchcat instances to ensure idempotency
+while uci -q get system.@watchcat[0] >/dev/null 2>&1; do
+    run_uci -q delete system.@watchcat[0]
+done
 
-uci commit system
-log_ok "System config committed."
+run_uci add system watchcat
+run_uci set system.@watchcat[-1].mode='restart_iface'
+run_uci set system.@watchcat[-1].interface='wwan'
+run_uci set system.@watchcat[-1].pinghosts='8.8.8.8 1.1.1.1'
+run_uci set system.@watchcat[-1].addressfamily='ipv4'
+run_uci set system.@watchcat[-1].pingperiod='30'
+run_uci set system.@watchcat[-1].period='3m'
+run_uci commit system
 
-# sysctl tuning
-cat > /etc/sysctl.d/99-custom.conf << 'SYSCTL'
-# TCP congestion control
+if [ "$DRY_RUN" = "0" ]; then
+    cat > /etc/sysctl.d/99-custom.conf << 'SYSCTL'
 net.ipv4.tcp_congestion_control=cubic
-# Default qdisc for interfaces not managed by SQM
 net.core.default_qdisc=fq_codel
 SYSCTL
-
-if [ "$DISABLE_IPV6" = "1" ]; then
-    cat >> /etc/sysctl.d/99-custom.conf << 'SYSCTL'
+    if [ "$DISABLE_IPV6" = "1" ]; then
+        cat >> /etc/sysctl.d/99-custom.conf << 'SYSCTL'
 net.ipv6.conf.all.disable_ipv6=1
 net.ipv6.conf.default.disable_ipv6=1
 net.ipv6.conf.lo.disable_ipv6=1
 SYSCTL
+    fi
 fi
-log_ok "sysctl config written to /etc/sysctl.d/99-custom.conf"
+log_ok "System tuning applied."
 
 # =============================================================================
-# PART 6 — DNS: DoH + dnsmasq
+# PART 7 — DNS: DoH + dnsmasq
 # =============================================================================
-log_step "[6/10] Configuring DoH + dnsmasq..."
+log_step "[7/10] Configuring DoH + dnsmasq..."
+[ -f /etc/config/https-dns-proxy ] || run_cmd touch /etc/config/https-dns-proxy
 
-# Ensure config file exists (some builds don't create it on install)
-[ -f /etc/config/https-dns-proxy ] || touch /etc/config/https-dns-proxy
+run_uci -q delete https-dns-proxy.@https-dns-proxy[0] || true
+run_uci -q delete https-dns-proxy.@https-dns-proxy[1] || true
 
-uci -q delete https-dns-proxy.@https-dns-proxy[0] || true
-uci -q delete https-dns-proxy.@https-dns-proxy[1] || true
+# Primary
+run_uci add https-dns-proxy https-dns-proxy
+run_uci set https-dns-proxy.@https-dns-proxy[-1].bootstrap_dns="$DOH_PRIMARY_BOOTSTRAP"
+run_uci set https-dns-proxy.@https-dns-proxy[-1].resolver_url="$DOH_PRIMARY_URL"
+run_uci set https-dns-proxy.@https-dns-proxy[-1].listen_addr='127.0.0.1'
+run_uci set https-dns-proxy.@https-dns-proxy[-1].listen_port="$DOH_PRIMARY_PORT"
+run_uci set https-dns-proxy.@https-dns-proxy[-1].use_http1='0'
+run_uci set https-dns-proxy.@https-dns-proxy[-1].dscp_codepoint='46'
 
-# Primary: Cloudflare
-uci add https-dns-proxy https-dns-proxy
-uci set https-dns-proxy.@https-dns-proxy[-1].bootstrap_dns="$DOH_PRIMARY_BOOTSTRAP"
-uci set https-dns-proxy.@https-dns-proxy[-1].resolver_url="$DOH_PRIMARY_URL"
-uci set https-dns-proxy.@https-dns-proxy[-1].listen_addr='127.0.0.1'
-uci set https-dns-proxy.@https-dns-proxy[-1].listen_port="$DOH_PRIMARY_PORT"
-uci set https-dns-proxy.@https-dns-proxy[-1].use_http1='0'
-uci set https-dns-proxy.@https-dns-proxy[-1].dscp_codepoint='46'
+# Secondary
+run_uci add https-dns-proxy https-dns-proxy
+run_uci set https-dns-proxy.@https-dns-proxy[-1].bootstrap_dns="$DOH_SECONDARY_BOOTSTRAP"
+run_uci set https-dns-proxy.@https-dns-proxy[-1].resolver_url="$DOH_SECONDARY_URL"
+run_uci set https-dns-proxy.@https-dns-proxy[-1].listen_addr='127.0.0.1'
+run_uci set https-dns-proxy.@https-dns-proxy[-1].listen_port="$DOH_SECONDARY_PORT"
+run_uci set https-dns-proxy.@https-dns-proxy[-1].use_http1='0'
+run_uci set https-dns-proxy.@https-dns-proxy[-1].dscp_codepoint='46'
+run_uci commit https-dns-proxy
 
-# Secondary: Google
-uci add https-dns-proxy https-dns-proxy
-uci set https-dns-proxy.@https-dns-proxy[-1].bootstrap_dns="$DOH_SECONDARY_BOOTSTRAP"
-uci set https-dns-proxy.@https-dns-proxy[-1].resolver_url="$DOH_SECONDARY_URL"
-uci set https-dns-proxy.@https-dns-proxy[-1].listen_addr='127.0.0.1'
-uci set https-dns-proxy.@https-dns-proxy[-1].listen_port="$DOH_SECONDARY_PORT"
-uci set https-dns-proxy.@https-dns-proxy[-1].use_http1='0'
-uci set https-dns-proxy.@https-dns-proxy[-1].dscp_codepoint='46'
+run_uci set dhcp.@dnsmasq[0].cachesize='5000'
+run_uci set dhcp.@dnsmasq[0].noresolv='1'
+run_uci -q delete dhcp.@dnsmasq[0].server || true
+run_uci add_list dhcp.@dnsmasq[0].server="127.0.0.1#${DOH_PRIMARY_PORT}"
+run_uci add_list dhcp.@dnsmasq[0].server="127.0.0.1#${DOH_SECONDARY_PORT}"
 
-uci commit https-dns-proxy
-
-# dnsmasq — point to local DoH proxies
-uci set dhcp.@dnsmasq[0].cachesize='5000'
-uci set dhcp.@dnsmasq[0].noresolv='1'
-uci -q delete dhcp.@dnsmasq[0].server || true
-uci add_list dhcp.@dnsmasq[0].server="127.0.0.1#${DOH_PRIMARY_PORT}"
-uci add_list dhcp.@dnsmasq[0].server="127.0.0.1#${DOH_SECONDARY_PORT}"
-
-# Block canary domains that bypass DoH (Firefox, iCloud Private Relay)
-uci -q delete dhcp.@dnsmasq[0].address || true
-uci add_list dhcp.@dnsmasq[0].address='/use-application-dns.net/'
-uci add_list dhcp.@dnsmasq[0].address='/mask.icloud.com/'
-uci add_list dhcp.@dnsmasq[0].address='/mask-h2.icloud.com/'
+run_uci -q delete dhcp.@dnsmasq[0].address || true
+run_uci add_list dhcp.@dnsmasq[0].address='/use-application-dns.net/'
+run_uci add_list dhcp.@dnsmasq[0].address='/mask.icloud.com/'
+run_uci add_list dhcp.@dnsmasq[0].address='/mask-h2.icloud.com/'
 
 if [ "$DISABLE_IPV6" = "1" ]; then
-    uci set dhcp.lan.dhcpv6='disabled'
-    uci set dhcp.lan.ra='disabled'
-    uci set dhcp.lan.ndp='disabled'
-    /etc/init.d/odhcpd disable
-    /etc/init.d/odhcpd stop
-    log_ok "DHCPv6 / RA / NDP disabled."
+    run_uci set dhcp.lan.dhcpv6='disabled'
+    run_uci set dhcp.lan.ra='disabled'
+    run_uci set dhcp.lan.ndp='disabled'
+    run_cmd /etc/init.d/odhcpd disable 2>/dev/null || true
+    run_cmd /etc/init.d/odhcpd stop 2>/dev/null || true
 fi
-
-uci commit dhcp
-log_ok "DNS / dnsmasq config committed."
+run_uci commit dhcp
+log_ok "DNS config committed."
 
 # =============================================================================
-# PART 7 — FIREWALL
+# PART 8 — FIREWALL
 # =============================================================================
-log_step "[7/10] Configuring firewall..."
+log_step "[8/10] Configuring firewall..."
+ping_rule=$(uci show firewall 2>/dev/null | grep "name='Allow-Ping'" | awk -F'.' '{print $2}' || true)
+[ -n "$ping_rule" ] && run_uci set firewall.${ping_rule}.target='DROP'
 
-# Drop WAN ping
-ping_rule=$(uci show firewall | grep "name='Allow-Ping'" | awk -F'.' '{print $2}')
-[ -n "$ping_rule" ] && uci set firewall.${ping_rule}.target='DROP' \
-    && log_ok "WAN ping set to DROP."
-
-# Remove unused default IPSec rules
 for rule_name in "Allow-IPSec-ESP" "Allow-ISAKMP"; do
-    r=$(uci show firewall | grep "name='${rule_name}'" | awk -F'.' '{print $2}')
-    if [ -n "$r" ]; then
-        uci delete firewall.${r}
-        log_ok "Removed unused firewall rule: $rule_name"
-    fi
+    r=$(uci show firewall 2>/dev/null | grep "name='${rule_name}'" | awk -F'.' '{print $2}' || true)
+    [ -n "$r" ] && run_uci delete firewall.${r}
 done
 
-# Clean up duplicate WAN zones left by OEM firmware
 for z in wan1 wan2 wan3 wan4 wan5 wwan2; do
-    uci -q delete firewall.$z && log_ok "Removed duplicate zone: $z" || true
+    run_uci -q delete firewall.$z || true
 done
 
-# Tailscale zone — idempotent (skip if already exists)
 if [ "$ENABLE_TAILSCALE" = "1" ]; then
-    _ts_zone=$(uci show firewall | grep "name='tailscale'" | awk -F'.' '{print $2}')
+    _ts_zone=$(uci show firewall 2>/dev/null | grep "name='tailscale'" | awk -F'.' '{print $2}' || true)
     if [ -z "$_ts_zone" ]; then
-        uci add firewall zone
-        uci set firewall.@zone[-1].name='tailscale'
-        uci set firewall.@zone[-1].input='ACCEPT'
-        uci set firewall.@zone[-1].output='ACCEPT'
-        uci set firewall.@zone[-1].forward='ACCEPT'
-        uci set firewall.@zone[-1].masq='1'
-        uci set firewall.@zone[-1].mtu_fix='1'
-        uci add_list firewall.@zone[-1].device='tailscale0'
+        run_uci add firewall zone
+        run_uci set firewall.@zone[-1].name='tailscale'
+        run_uci set firewall.@zone[-1].input='ACCEPT'
+        run_uci set firewall.@zone[-1].output='ACCEPT'
+        run_uci set firewall.@zone[-1].forward='ACCEPT'
+        run_uci set firewall.@zone[-1].masq='1'
+        run_uci set firewall.@zone[-1].mtu_fix='1'
+        run_uci add_list firewall.@zone[-1].device='tailscale0'
 
-        uci add firewall forwarding
-        uci set firewall.@forwarding[-1].src='lan'
-        uci set firewall.@forwarding[-1].dest='tailscale'
+        run_uci add firewall forwarding
+        run_uci set firewall.@forwarding[-1].src='lan'
+        run_uci set firewall.@forwarding[-1].dest='tailscale'
 
-        uci add firewall forwarding
-        uci set firewall.@forwarding[-1].src='tailscale'
-        uci set firewall.@forwarding[-1].dest='lan'
-        log_ok "Tailscale firewall zone created."
-    else
-        log_warn "Tailscale zone already exists — skipping to avoid duplicates."
+        run_uci add firewall forwarding
+        run_uci set firewall.@forwarding[-1].src='tailscale'
+        run_uci set firewall.@forwarding[-1].dest='lan'
     fi
 fi
 
-# USB WAN zone (enable if using USB modem/dongle as fallback WAN)
 if [ "$ENABLE_WANUSB_ZONE" = "1" ]; then
-    _usb_zone=$(uci show firewall | grep "name='wanusb'" | awk -F'.' '{print $2}')
+    _usb_zone=$(uci show firewall 2>/dev/null | grep "name='wanusb'" | awk -F'.' '{print $2}' || true)
     if [ -z "$_usb_zone" ]; then
-        uci add firewall zone
-        uci set firewall.@zone[-1].name='wanusb'
-        uci set firewall.@zone[-1].input='REJECT'
-        uci set firewall.@zone[-1].output='ACCEPT'
-        uci set firewall.@zone[-1].forward='REJECT'
-        uci set firewall.@zone[-1].masq='1'
-        uci set firewall.@zone[-1].mtu_fix='1'
-        uci add_list firewall.@zone[-1].network='wanusb'
+        run_uci add firewall zone
+        run_uci set firewall.@zone[-1].name='wanusb'
+        run_uci set firewall.@zone[-1].input='REJECT'
+        run_uci set firewall.@zone[-1].output='ACCEPT'
+        run_uci set firewall.@zone[-1].forward='REJECT'
+        run_uci set firewall.@zone[-1].masq='1'
+        run_uci set firewall.@zone[-1].mtu_fix='1'
+        run_uci add_list firewall.@zone[-1].network='wanusb'
 
-        uci add firewall forwarding
-        uci set firewall.@forwarding[-1].src='lan'
-        uci set firewall.@forwarding[-1].dest='wanusb'
-        log_ok "USB WAN firewall zone created."
-    else
-        log_warn "wanusb zone already exists — skipping."
+        run_uci add firewall forwarding
+        run_uci set firewall.@forwarding[-1].src='lan'
+        run_uci set firewall.@forwarding[-1].dest='wanusb'
     fi
 fi
 
-uci commit firewall
+run_uci commit firewall
 log_ok "Firewall config committed."
 
 # =============================================================================
-# PART 8 — CRON + adblock-lean
+# PART 9 — CRON + adblock-lean
 # =============================================================================
-log_step "[8/10] Configuring cron + adblock-lean..."
+log_step "[9/10] Configuring cron + adblock-lean..."
 
-cat > /etc/crontabs/root << 'CRON'
-# Weekly reboot every Sunday at 03:00
+if [ "$DRY_RUN" = "0" ]; then
+    cat > /etc/crontabs/root << 'CRON'
 0 3 * * 0 reboot
 0 5 * * * RANDOM_DELAY=1 /etc/init.d/adblock-lean start 1>/dev/null
 CRON
-log_ok "Cron job written."
+fi
 
-if [ "$ENABLE_ADBLOCK_LEAN" = "1" ]; then
-    log_info "Downloading adblock-lean installer..."
-    uclient-fetch https://raw.githubusercontent.com/lynxthecat/adblock-lean/master/abl-install.sh \
-        -O /tmp/abl-install.sh
+if [ "$ENABLE_ADBLOCK_LEAN" = "1" ] && [ "$DRY_RUN" = "0" ]; then
+    uclient-fetch https://raw.githubusercontent.com/lynxthecat/adblock-lean/master/abl-install.sh -O /tmp/abl-install.sh
     if [ -f /tmp/abl-install.sh ]; then
-        sh /tmp/abl-install.sh -v release \
-            && log_ok "adblock-lean installed successfully." \
-            || log_warn "adblock-lean installer returned an error — check manually."
+        sh /tmp/abl-install.sh -v release
         rm -f /tmp/abl-install.sh
-    else
-        log_warn "Failed to download abl-install.sh — skipping adblock-lean."
     fi
 fi
 
-service cron enable
+run_cmd service cron enable || true
 log_ok "Cron service enabled."
 
 # =============================================================================
-# PART 9 — ENABLE SERVICES
+# PART 10 — ENABLE SERVICES & RC.LOCAL
 # =============================================================================
-log_step "[9/10] Enabling services..."
+log_step "[10/10] Enabling services..."
 
-# ZRAM — init script name varies across builds
-if [ -n "$ZRAM_MB" ]; then
-    _zram_enabled=0
-    for svc in zram zram-swap; do
-        if [ -f /etc/init.d/$svc ]; then
-            service $svc enable
-            log_ok "ZRAM service enabled: $svc"
-            _zram_enabled=1
-            break
-        fi
+if [ "$DRY_RUN" = "0" ]; then
+    for svc in zram zram-setup zram-swap; do
+        [ -f /etc/init.d/$svc ] && service $svc enable
     done
-    [ "$_zram_enabled" = "0" ] && log_warn "No ZRAM init script found — skipping."
-fi
+    for svc in watchcat watchcat-script; do
+        [ -f /etc/init.d/$svc ] && service $svc enable
+    done
+    [ "$ENABLE_TAILSCALE" = "1" ] && [ -f /etc/init.d/tailscale ] && service tailscale enable
+    sysctl -p /etc/sysctl.d/99-custom.conf 2>/dev/null || true
 
-# Watchcat — init script name varies
-_watchcat_enabled=0
-for svc in watchcat watchcat-script; do
-    if [ -f /etc/init.d/$svc ]; then
-        service $svc enable
-        log_ok "Watchcat service enabled: $svc"
-        _watchcat_enabled=1
-        break
-    fi
-done
-[ "$_watchcat_enabled" = "0" ] && log_warn "No Watchcat init script found — skipping."
-
-if [ "$ENABLE_TAILSCALE" = "1" ] && [ -f /etc/init.d/tailscale ]; then
-    service tailscale enable
-    log_ok "Tailscale service enabled."
-fi
-
-# Apply sysctl now (will also apply on next boot via /etc/sysctl.d/)
-sysctl -p /etc/sysctl.d/99-custom.conf
-log_ok "sysctl settings applied."
-
-# =============================================================================
-# PART 10 — POST-REBOOT INIT (rc.local) + REBOOT
-# =============================================================================
-log_step "[10/10] Writing post-reboot init and scheduling reboot..."
-
-# Write to a dedicated init script instead of overwriting rc.local entirely.
-# Uses a flag file so it runs exactly once, then removes itself.
-cat > /etc/rc.local << RCEOF
+    # Write post-reboot init
+    cat > /etc/rc.local << RCEOF
 #!/bin/sh
-
-# Guard: run only once
 [ -f /tmp/.setup_done ] && exit 0
 touch /tmp/.setup_done
-
-# Wait for all services to be ready
 sleep 10
-
 wifi reload
 /etc/init.d/sqm            restart
 /etc/init.d/https-dns-proxy restart
 /etc/init.d/dnsmasq         restart
 /etc/init.d/firewall        restart
-
 [ -f /etc/init.d/adblock-lean ] && /etc/init.d/adblock-lean start
 [ -f /etc/init.d/tailscale    ] && /etc/init.d/tailscale    restart
-
-# Self-remove after successful run
 rm -f /etc/rc.local
-
 exit 0
 RCEOF
-
-chmod +x /etc/rc.local
-log_ok "Post-reboot rc.local written."
+    chmod +x /etc/rc.local
+fi
 
 # =============================================================================
 # FINAL SUMMARY
 # =============================================================================
+END_TIME=$(date +%s)
+ELAPSED=$((END_TIME - START_TIME))
+
 printf "\n${BOLD}============================================================${NC}\n"
-printf "${GREEN}  Configuration complete. Rebooting in 5 seconds...${NC}\n"
-printf "${BOLD}============================================================${NC}\n"
-printf "\nAfter reboot, run these to verify:\n\n"
-printf "  # Connectivity\n"
-printf "  ping -c4 8.8.8.8\n\n"
-printf "  # DoH / DNS\n"
-printf "  nslookup google.com 127.0.0.1\n\n"
-printf "  # SQM / CAKE\n"
-printf "  tc qdisc show dev %s\n\n" "$WWAN_IFACE"
-printf "  # HTTPS-DNS-Proxy\n"
-printf "  /etc/init.d/https-dns-proxy status\n\n"
-printf "  # Watchcat\n"
-printf "  logread | grep -i watchcat\n\n"
-if [ "$ENABLE_TAILSCALE" = "1" ]; then
-    printf "  # Tailscale status\n"
-    printf "  tailscale status\n\n"
-    printf "  # Tailscale login (adjust subnet as needed)\n"
-    printf "  tailscale up --advertise-routes=192.168.11.0/24 --accept-routes\n\n"
-fi
-printf "  # UCI backup location (pre-change snapshot)\n"
-printf "  ls %s\n\n" "$BACKUP_DIR"
+printf "${GREEN}  Configuration complete. Elapsed time: %ds${NC}\n" "$ELAPSED"
 printf "${BOLD}============================================================${NC}\n"
 
-sleep 5
-reboot
+if [ "$DRY_RUN" = "1" ]; then
+    exit 0
+fi
+
+if [ "$NO_REBOOT" = "1" ]; then
+    log_info "Reboot skipped as requested (--no-reboot)."
+else
+    log_info "Rebooting in 5 seconds..."
+    sleep 5
+    run_cmd reboot
+fi
