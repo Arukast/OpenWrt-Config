@@ -4,3 +4,6 @@
 #
 # On the router, place the config at: /etc/telegram.conf
 GAS_URL="https://script.google.com/macros/s/YOUR_SCRIPT_ID_HERE/exec"
+
+# Language toggle (en or id)
+LANG="en"

@@ -1,36 +1,44 @@
 #!/bin/sh
 # File: /etc/hotplug.d/iface/99-wisp-notify
 
-[ "$INTERFACE" = "wwan" ] || exit 0
+# Load config & lang
+CONF="/etc/telegram.conf"
+[ -f "$CONF" ] || CONF="$(dirname "$0")/telegram.conf"
+[ -f "$CONF" ] || exit 0
+. "$CONF"
 
-if [ "$ACTION" = "ifdown" ]; then
-    # Catat waktu putus (timestamp) ke folder /tmp (berada di RAM)
-    date +%s > /tmp/wisp_down_time
+LANG_FILE="$(dirname "$0")/lang/${LANG:-en}.sh"
+[ -f "$LANG_FILE" ] && . "$LANG_FILE" || . "$(dirname "$0")/lang/en.sh"
 
-elif [ "$ACTION" = "ifup" ]; then
-    # Eksekusi sub-shell di background (&) agar tidak memblokir antrean sistem OpenWrt
-    (
-        # Looping untuk menahan eksekusi sampai internet benar-benar ada (Ping sukses)
-        # Mencoba maksimal 30 kali (sekitar 60 detik)
-        count=0
-        while ! ping -c 1 -W 2 8.8.8.8 > /dev/null 2>&1; do
-            sleep 2
-            count=$((count+1))
-            [ $count -ge 30 ] && exit 1 
-        done
+IFACE="wwan"
+DOWN_TIME_FILE="/tmp/wisp_down_time"
 
-        # Jika sukses tembus internet, cek apakah ada histori WISP putus
-        if [ -f /tmp/wisp_down_time ]; then
-            DOWN_TIME=$(cat /tmp/wisp_down_time)
+if [ "$INTERFACE" = "$IFACE" ]; then
+    if [ "$ACTION" = "ifdown" ]; then
+        date +%s > "$DOWN_TIME_FILE"
+    
+    elif [ "$ACTION" = "ifup" ]; then
+        IP=$(ifstatus "$IFACE" | jsonfilter -e '@["ipv4-address"][0].address' 2>/dev/null)
+        [ -z "$IP" ] && IP="unknown"
+        
+        WWAN_DEV=$(uci -q get network.wwan.device || echo "phy0-sta0")
+        SIGNAL=$(iw dev "$WWAN_DEV" link 2>/dev/null | grep signal | awk '{print $2}')
+        [ -z "$SIGNAL" ] && SIGNAL="unknown"
+
+        if [ -f "$DOWN_TIME_FILE" ]; then
+            DOWN_TIME=$(cat "$DOWN_TIME_FILE")
             UP_TIME=$(date +%s)
-            DURASI=$((UP_TIME - DOWN_TIME))
-            MENIT=$((DURASI / 60))
-            DETIK=$((DURASI % 60))
+            DURATION=$((UP_TIME - DOWN_TIME))
+            MINUTES=$((DURATION / 60))
+            SECONDS=$((DURATION % 60))
             
-            rm /tmp/wisp_down_time
-            /usr/bin/telegram_notify.sh "UPLINK" "WISP (wwan) Pulih %0AInternet sempat terputus selama ${MENIT} menit ${DETIK} detik"
+            rm -f "$DOWN_TIME_FILE"
+            
+            MSG=$(printf "$MSG_WISP_RECOVER" "$MINUTES" "$SECONDS" "$IP" "$SIGNAL")
+            /usr/bin/telegram_notify.sh "NETWORK" "$MSG"
         else
-            /usr/bin/telegram_notify.sh "UPLINK" "WISP (wwan) Terhubung"
+            MSG=$(printf "$MSG_WISP_CONNECTED" "$IP" "$SIGNAL")
+            /usr/bin/telegram_notify.sh "NETWORK" "$MSG"
         fi
-    ) &
+    fi
 fi
