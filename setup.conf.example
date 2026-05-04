@@ -1,0 +1,65 @@
+# =============================================================================
+# OpenWrt Setup Configuration File
+# Copy this file to setup.conf and edit the values before running the script.
+# =============================================================================
+
+# --- System ---
+HOSTNAME="OpenWrt-WISP"
+TIMEZONE="WIB-7"         # e.g., WIB-7, WITA-8, WIT-9
+ZONENAME="Asia/Jakarta"  # e.g., Asia/Jakarta, Asia/Makassar
+LAN_IP="192.168.11.1"    # Avoids conflict with upstream 192.168.1.1
+LAN_NETMASK="255.255.255.0"
+
+# --- Wireless WAN Interface (WISP/STA) ---
+WWAN_IFACE="phy0-sta0"
+
+# --- Radio Names ---
+RADIO_2G="radio0"
+RADIO_5G="radio1"       # Leave empty if no 5 GHz radio: RADIO_5G=""
+
+# --- Wireless Config ---
+WIFI_SSID_2G="OpenWrt-WISP-2G"
+WIFI_SSID_5G="OpenWrt-WISP-5G"
+WIFI_KEY="CHANGE_ME_SUPER_SECRET_KEY" # REQUIRED: Change this!
+
+CH_2G="6"
+HTMODE_2G="HE20"
+TXPWR_2G="13"
+
+CH_5G="157"
+HTMODE_5G="HE80"
+TXPWR_5G="17"
+
+COUNTRY="ID"
+LAN_PORTS=""            # Leave empty to keep defaults
+
+# --- SQM CAKE Bandwidth (kbps) ---
+DL_KBPS="23000"
+UL_KBPS="11000"
+
+# --- SQM MTU / Overhead ---
+SQM_OVERHEAD="44"
+SQM_LINKLAYER="ethernet"
+SQM_MTU="1480"
+
+# --- ZRAM ---
+ZRAM_MB="128"
+ZRAM_ALGO="lzo-rle"
+
+# --- DNS over HTTPS ---
+DOH_PRIMARY_BOOTSTRAP="1.1.1.1,1.0.0.1"
+DOH_PRIMARY_URL="https://cloudflare-dns.com/dns-query"
+DOH_PRIMARY_PORT="5053"
+
+DOH_SECONDARY_BOOTSTRAP="9.9.9.9,149.112.112.112"
+DOH_SECONDARY_URL="https://dns.quad9.net/dns-query"
+DOH_SECONDARY_PORT="5054"
+
+# --- NTP Servers ---
+NTP_SERVERS="0.id.pool.ntp.org 1.id.pool.ntp.org 2.id.pool.ntp.org 3.id.pool.ntp.org"
+
+# --- Feature Toggles (1=enabled, 0=disabled) ---
+ENABLE_TAILSCALE=1
+ENABLE_ADBLOCK_LEAN=1
+ENABLE_WANUSB_ZONE=0
+DISABLE_IPV6=1

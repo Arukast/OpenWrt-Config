@@ -17,12 +17,20 @@ Automated configuration and advanced monitoring suite for OpenWrt routers. This 
 
 ### Installation
 1. Connect your PC to the router.
-2. Transfer the setup script to the router via SCP:
+2. Transfer the setup script and example configuration to the router via SCP:
    ```bash
-   scp OpenWrtSetup.sh root@192.168.1.1:/tmp/
+   scp OpenWrtSetup.sh setup.conf.example root@192.168.1.1:/tmp/
    ```
-3. SSH into the router and run the script:
+3. SSH into the router, copy the example config, and edit your secrets:
    ```bash
+   cd /tmp
+   cp setup.conf.example setup.conf
+   vi setup.conf # Ensure you change WIFI_KEY
+   ```
+4. Run the script:
+   ```bash
+   sh OpenWrtSetup.sh --config setup.conf
+   ```
    ssh root@192.168.1.1
    chmod +x /tmp/OpenWrtSetup.sh
    # Optional: run with --dry-run first to see what will change

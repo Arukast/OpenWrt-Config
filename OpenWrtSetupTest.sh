@@ -1,13 +1,35 @@
 #!/bin/sh
 # =============================================================================
 #  OpenWrt Post-Setup Verification Script
-#  Usage: sh /tmp/verify.sh [--json]
+#  Usage: sh /tmp/verify.sh [--json] [--config file.conf]
 # =============================================================================
 
 # --- Arguments ---
 JSON_OUT=0
-if [ "${1:-}" = "--json" ]; then
-    JSON_OUT=1
+CONFIG_FILE=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --json) JSON_OUT=1 ;;
+        --config)
+            CONFIG_FILE="$2"
+            shift
+            ;;
+    esac
+    shift
+done
+
+# --- Load Config (Optional, to verify expected state) ---
+if [ -z "$CONFIG_FILE" ]; then
+    if [ -f "./setup.conf" ]; then
+        CONFIG_FILE="./setup.conf"
+    elif [ -f "/etc/openwrt-setup.conf" ]; then
+        CONFIG_FILE="/etc/openwrt-setup.conf"
+    fi
+fi
+
+if [ -n "$CONFIG_FILE" ] && [ -f "$CONFIG_FILE" ]; then
+    . "$CONFIG_FILE"
 fi
 
 # --- Colors ---
@@ -25,8 +47,8 @@ _add_result() {
     
     if [ "$JSON_OUT" = "1" ]; then
         # Escape quotes
-        msg=$(echo "$msg" | sed 's/"/\\"/g')
-        fix=$(echo "$fix" | sed 's/"/\\"/g')
+        msg=$(echo "$msg" | sed 's/"/\\"/g' | tr -d '\n')
+        fix=$(echo "$fix" | sed 's/"/\\"/g' | tr -d '\n')
         [ -n "$RESULTS" ] && RESULTS="$RESULTS,"
         RESULTS="$RESULTS{\"status\":\"$status\",\"message\":\"$msg\",\"fix\":\"$fix\"}"
     fi
@@ -57,11 +79,12 @@ section() { [ "$JSON_OUT" = "0" ] && printf "\n${BOLD}━━━ %s ━━━${NC
 # =============================================================================
 # Initialization
 # =============================================================================
-WWAN_IFACE=$(uci -q get network.wwan.device || echo "phy0-sta0")
-DL_KBPS=$(uci -q get sqm.@queue[0].download  || echo "0")
-UL_KBPS=$(uci -q get sqm.@queue[0].upload    || echo "0")
-DOH_PORT1=$(uci -q get https-dns-proxy.@https-dns-proxy[0].listen_port || echo "5053")
-DOH_PORT2=$(uci -q get https-dns-proxy.@https-dns-proxy[1].listen_port || echo "5054")
+# Prefer config values if loaded, else fallback to UCI
+WWAN_IFACE=${WWAN_IFACE:-$(uci -q get network.wwan.device || echo "phy0-sta0")}
+DL_KBPS=${DL_KBPS:-$(uci -q get sqm.@queue[0].download || echo "0")}
+UL_KBPS=${UL_KBPS:-$(uci -q get sqm.@queue[0].upload || echo "0")}
+DOH_PORT1=${DOH_PRIMARY_PORT:-$(uci -q get https-dns-proxy.@https-dns-proxy[0].listen_port || echo "5053")}
+DOH_PORT2=${DOH_SECONDARY_PORT:-$(uci -q get https-dns-proxy.@https-dns-proxy[1].listen_port || echo "5054")}
 
 if [ "$JSON_OUT" = "0" ]; then
     printf "\n${BOLD}============================================================${NC}\n"
@@ -69,6 +92,7 @@ if [ "$JSON_OUT" = "0" ]; then
     printf "  Date   : $(date)\n"
     printf "  Host   : $(uname -n)\n"
     printf "  Uptime : $(uptime | awk -F'( |,|:)+' '{print $6" days, "$8" hours, "$9" mins"}')\n"
+    [ -n "$CONFIG_FILE" ] && [ -f "$CONFIG_FILE" ] && printf "  Config : Loaded from %s\n" "$CONFIG_FILE"
     printf "${BOLD}============================================================${NC}\n"
 fi
 
@@ -87,11 +111,16 @@ fi
 
 # Storage Check
 if df /overlay 2>/dev/null | grep -q overlay; then
-    overlay_use=$(df /overlay | awk 'NR==2 {print $5}' | tr -d '%')
-    if [ "$overlay_use" -gt 85 ]; then
-        warn "/overlay is ${overlay_use}%% full" "Clean up unused packages or logs in /overlay"
+    # Improved robust parsing for different df outputs
+    overlay_use=$(df /overlay | tail -n 1 | awk '{print $(NF-1)}' | tr -d '%')
+    if [ -n "$overlay_use" ] && [ "$overlay_use" -eq "$overlay_use" ] 2>/dev/null; then
+        if [ "$overlay_use" -gt 85 ]; then
+            warn "/overlay is ${overlay_use}%% full" "Clean up unused packages or logs in /overlay"
+        else
+            pass "/overlay storage is healthy (${overlay_use}%% used)"
+        fi
     else
-        pass "/overlay storage is healthy (${overlay_use}%% used)"
+        warn "Could not parse /overlay usage properly" ""
     fi
 else
     warn "/overlay partition not found" "Check mount points"
@@ -109,6 +138,30 @@ if [ -n "$missing" ]; then
     fail "Missing packages:$missing" "apk add$missing"
 else
     pass "Required packages installed"
+fi
+
+# ZRAM Check
+if [ "${ZRAM_MB:-0}" -gt 0 ] || lsmod | grep -q zram; then
+    if [ -b /dev/zram0 ]; then
+        zram_size=$(cat /sys/block/zram0/disksize 2>/dev/null || echo "0")
+        zram_mb=$(( zram_size / 1024 / 1024 ))
+        pass "ZRAM active (${zram_mb}MB)"
+    else
+        fail "ZRAM enabled but /dev/zram0 not found" "/etc/init.d/zram-setup restart"
+    fi
+fi
+
+# Adblock-lean Check
+if [ "${ENABLE_ADBLOCK_LEAN:-1}" = "1" ]; then
+    if [ -f /etc/init.d/adblock-lean ]; then
+        if /etc/init.d/adblock-lean status >/dev/null 2>&1; then
+            pass "adblock-lean service is running"
+        else
+            warn "adblock-lean installed but not running" "/etc/init.d/adblock-lean start"
+        fi
+    else
+        warn "adblock-lean is not installed" "Check setup script execution"
+    fi
 fi
 
 # =============================================================================
@@ -228,17 +281,19 @@ fi
 # =============================================================================
 section "7. Tailscale"
 
-if command -v tailscale >/dev/null 2>&1; then
-    ts_status=$(tailscale status 2>&1 | head -1)
-    if echo "$ts_status" | grep -qi "logged out\|not logged"; then
-        warn "Tailscale not logged in" "tailscale up --accept-routes"
-    elif echo "$ts_status" | grep -qi "stopped\|error"; then
-        fail "Tailscale status error: $ts_status" "/etc/init.d/tailscale restart"
+if [ "${ENABLE_TAILSCALE:-1}" = "1" ]; then
+    if command -v tailscale >/dev/null 2>&1; then
+        ts_status=$(tailscale status 2>&1 | head -1)
+        if echo "$ts_status" | grep -qi "logged out\|not logged"; then
+            warn "Tailscale not logged in" "tailscale up --accept-routes"
+        elif echo "$ts_status" | grep -qi "stopped\|error"; then
+            fail "Tailscale status error: $ts_status" "/etc/init.d/tailscale restart"
+        else
+            pass "Tailscale active: $ts_status"
+        fi
     else
-        pass "Tailscale active: $ts_status"
+        warn "Tailscale not installed" "apk add tailscale"
     fi
-else
-    warn "Tailscale not installed" "apk add tailscale"
 fi
 
 # =============================================================================

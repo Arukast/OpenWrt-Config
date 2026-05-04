@@ -1,6 +1,7 @@
 # Secret config (contains Telegram webhook URL)
 .env
 telegram.conf
+setup.conf
 
 # Editor / OS
 *.swp
