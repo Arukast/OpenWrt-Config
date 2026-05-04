@@ -5,7 +5,14 @@ set -e
 
 SRC_DIR="$(dirname "$0")"
 
-echo "Installing Telegram Monitoring..."
+# Check dependencies
+if ! command -v curl >/dev/null 2>&1; then
+    echo "Warning: curl is not installed. Attempting to install..."
+    opkg update && opkg install curl || {
+        echo "Error: Failed to install curl. Please install it manually with 'opkg update && opkg install curl'."
+        exit 1
+    }
+fi
 
 # Copy core scripts
 cp "$SRC_DIR/telegram_notify.sh" /usr/bin/
@@ -28,9 +35,22 @@ mkdir -p /etc/hotplug.d/dhcp/
 cp "$SRC_DIR/99-wisp-notify" /etc/hotplug.d/iface/
 cp "$SRC_DIR/dhcp_notify.sh" /etc/hotplug.d/dhcp/99-dhcp-notify
 
+chmod +x /etc/hotplug.d/iface/99-wisp-notify
+chmod +x /etc/hotplug.d/dhcp/99-dhcp-notify
+
+# Copy SSH notify script
+if [ -f "$SRC_DIR/99-ssh-notify.sh" ]; then
+    cp "$SRC_DIR/99-ssh-notify.sh" /etc/profile.d/
+    chmod +x /etc/profile.d/99-ssh-notify.sh
+fi
+
 # Install config if not exists
 if [ ! -f /etc/telegram.conf ]; then
-    cp "$SRC_DIR/telegram.conf.example" /etc/telegram.conf
+    if [ -f "$SRC_DIR/telegram.conf" ]; then
+        cp "$SRC_DIR/telegram.conf" /etc/telegram.conf
+    else
+        cp "$SRC_DIR/telegram.conf.example" /etc/telegram.conf
+    fi
     echo "Please edit /etc/telegram.conf with your Webhook URL"
 fi
 
@@ -40,9 +60,27 @@ if ! grep -q "router_monitor.sh" /etc/crontabs/root 2>/dev/null; then
     /etc/init.d/cron restart
 fi
 
-# Setup auth_monitor to run on boot
-if ! grep -q "auth_monitor.sh" /etc/rc.local 2>/dev/null; then
-    sed -i '/exit 0/i \/usr/bin/auth_monitor.sh &' /etc/rc.local
+# Setup auth_monitor to run on boot (Handle missing /etc/rc.local)
+RC_LOCAL="/etc/rc.local"
+AUTH_CMD="/usr/bin/auth_monitor.sh &"
+
+if [ ! -f "$RC_LOCAL" ]; then
+    echo "Creating $RC_LOCAL..."
+    printf "#!/bin/sh\n\n%s\n\nexit 0\n" "$AUTH_CMD" > "$RC_LOCAL"
+    chmod +x "$RC_LOCAL"
+else
+    if ! grep -q "auth_monitor.sh" "$RC_LOCAL"; then
+        if grep -q "exit 0" "$RC_LOCAL"; then
+            sed -i "/exit 0/i $AUTH_CMD" "$RC_LOCAL"
+        else
+            echo "$AUTH_CMD" >> "$RC_LOCAL"
+        fi
+    fi
+fi
+
+# Start auth_monitor if not running
+if ! ps | grep -v grep | grep -q "auth_monitor.sh"; then
+    /usr/bin/auth_monitor.sh &
 fi
 
 echo "Installation complete!"
