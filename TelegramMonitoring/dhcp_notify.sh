@@ -7,8 +7,11 @@ CONF="/etc/telegram.conf"
 [ -f "$CONF" ] || { echo "ERROR: telegram.conf not found"; exit 1; }
 . "$CONF"
 
-LANG_FILE="$(dirname "$0")/lang/${LANG:-en}.sh"
-[ -f "$LANG_FILE" ] && . "$LANG_FILE" || . "$(dirname "$0")/lang/en.sh"
+LANG_DIR=${LANG_DIR:-"/etc/telegram_lang"}
+[ -d "$(dirname "$0")/lang" ] && LANG_DIR="$(dirname "$0")/lang"
+LANG_FILE="${LANG_DIR}/${LANG:-en}.sh"
+
+[ -f "$LANG_FILE" ] && . "$LANG_FILE" || . "${LANG_DIR}/en.sh"
 
 KNOWN_DEVICES="/etc/known_devices"
 [ ! -f "$KNOWN_DEVICES" ] && touch "$KNOWN_DEVICES"

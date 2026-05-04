@@ -21,20 +21,12 @@ mkdir -p /etc/telegram_lang
 cp "$SRC_DIR/lang/en.sh" /etc/telegram_lang/
 cp "$SRC_DIR/lang/id.sh" /etc/telegram_lang/
 
-# Adjust config loading path in installed scripts
-sed -i 's|$(dirname "$0")/lang|/etc/telegram_lang|g' /usr/bin/router_monitor.sh
-sed -i 's|$(dirname "$0")/lang|/etc/telegram_lang|g' /usr/bin/auth_monitor.sh
-
 # Copy hotplug scripts
 mkdir -p /etc/hotplug.d/iface/
 mkdir -p /etc/hotplug.d/dhcp/
 
 cp "$SRC_DIR/99-wisp-notify" /etc/hotplug.d/iface/
 cp "$SRC_DIR/dhcp_notify.sh" /etc/hotplug.d/dhcp/99-dhcp-notify
-
-# Adjust config loading path in hotplug scripts
-sed -i 's|$(dirname "$0")/lang|/etc/telegram_lang|g' /etc/hotplug.d/iface/99-wisp-notify
-sed -i 's|$(dirname "$0")/lang|/etc/telegram_lang|g' /etc/hotplug.d/dhcp/99-dhcp-notify
 
 # Install config if not exists
 if [ ! -f /etc/telegram.conf ]; then

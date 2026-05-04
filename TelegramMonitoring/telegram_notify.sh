@@ -20,13 +20,15 @@ CONF="/etc/telegram.conf"
 
 # Add timestamp to message
 TS=$(date "+%Y-%m-%d %H:%M:%S")
-PESAN="[${TS}] %0A${PESAN}"
+PESAN="[${TS}] \n${PESAN}"
 
 # Escape JSON payload properly
-# Replace newlines with %0A to be handled by telegram properly, and escape quotes
-JSON_PAYLOAD=$(printf '{"kategori": "%s", "pesan": "%s"}' \
-    "$(echo "$KATEGORI" | sed 's/"/\\"/g')" \
-    "$(echo "$PESAN" | sed 's/"/\\"/g')")
+# We construct JSON safely using awk to escape quotes and newlines
+JSON_PAYLOAD=$(awk -v k="$KATEGORI" -v p="$PESAN" 'BEGIN {
+    gsub(/"/, "\\\"", k); gsub(/\n/, "\\n", k);
+    gsub(/"/, "\\\"", p); gsub(/\n/, "\\n", p);
+    printf "{\"kategori\": \"%s\", \"pesan\": \"%s\"}", k, p
+}')
 
 # Rate limiting: Max 10 messages per minute
 RATE_LIMIT_FILE="/tmp/telegram_rate_limit"
