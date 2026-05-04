@@ -41,6 +41,10 @@ function doPost(e) {
   }
 }
 
+function doGet(e) {
+  return doPost(e);
+}
+
 function hapusLogLama() {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
   var data = sheet.getDataRange().getValues();

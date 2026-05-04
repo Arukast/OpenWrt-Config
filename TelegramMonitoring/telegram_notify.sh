@@ -16,7 +16,14 @@ CONF="/etc/telegram.conf"
 [ -f "$CONF" ] || { echo "ERROR: telegram.conf not found" >&2; exit 1; }
 . "$CONF"
 
-[ -z "$GAS_URL" ] && { echo "ERROR: GAS_URL not set in telegram.conf" >&2; exit 1; }
+# Sanitize GAS_URL (remove trailing \r, \n, and spaces)
+GAS_URL=$(echo "$GAS_URL" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+if [ -z "$GAS_URL" ] || [ "$GAS_URL" = "https://script.google.com/macros/s/YOUR_SCRIPT_ID_HERE/exec" ]; then
+    echo "ERROR: GAS_URL is missing or using placeholder in $CONF" >&2
+    echo "Current value: $GAS_URL" >&2
+    exit 1
+fi
 
 # Add timestamp to message
 TS=$(date "+%Y-%m-%d %H:%M:%S")
@@ -56,12 +63,23 @@ RETRY_DELAY=2
 ATTEMPT=1
 
 while [ $ATTEMPT -le $MAX_RETRIES ]; do
-    HTTP_CODE=$(curl -s -L -w "%{http_code}" -o /dev/null -X POST "$GAS_URL" \
+    # We use --post301 --post302 --post303 to ensure POST is maintained through redirects
+    # If these flags are not supported by the local curl, we fall back to standard -L
+    HTTP_CODE=$(curl -s -L -w "%{http_code}" -o /dev/null \
+        --post301 --post302 --post303 \
         -H "Content-Type: application/json" \
-        -d "$JSON_PAYLOAD")
+        -d "$JSON_PAYLOAD" "$GAS_URL" 2>/dev/null || \
+    curl -s -L -w "%{http_code}" -o /dev/null -X POST \
+        -H "Content-Type: application/json" \
+        -d "$JSON_PAYLOAD" "$GAS_URL")
         
     if [ "$HTTP_CODE" = "200" ]; then
         exit 0
+    fi
+    
+    if [ "$HTTP_CODE" = "404" ]; then
+        echo "ERROR: Received HTTP 404. This usually means the GAS_URL is invalid or the script is not deployed as a Web App." >&2
+        exit 1
     fi
     
     echo "Attempt $ATTEMPT failed with HTTP code $HTTP_CODE. Retrying in $RETRY_DELAY seconds..." >&2
