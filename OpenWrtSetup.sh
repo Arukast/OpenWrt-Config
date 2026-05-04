@@ -59,6 +59,13 @@ _abort()    { log_error "$*"; exit 1; }
 > "$LOG_FILE"
 log_info "Starting OpenWrt Setup Script (WISP Mode)"
 
+show_subnet_hint() {
+    printf "\n${YELLOW}Troubleshooting: Fix by changing the LAN subnet:${NC}\n"
+    printf "uci set network.lan.ipaddr='192.168.11.1'\n"
+    printf "uci set network.lan.netmask='255.255.255.0'\n"
+    printf "uci commit network && /etc/init.d/network restart\n\n"
+}
+
 _on_exit() {
     rc=$?
     [ $rc -ne 0 ] && log_error "Script exited unexpectedly (exit code $rc)."
@@ -96,7 +103,10 @@ load_config() {
 
     if [ -n "$CONFIG_FILE" ] && [ -f "$CONFIG_FILE" ]; then
         log_info "Loading configuration from $CONFIG_FILE"
-        . "$CONFIG_FILE"
+        case "$CONFIG_FILE" in
+            */*) . "$CONFIG_FILE" ;;
+              *) . "./$CONFIG_FILE" ;;
+        esac
     else
         log_info "No configuration file found or specified."
     fi
@@ -164,18 +174,44 @@ pre_flight_checks() {
         esac
     done
 
-    # Clock Check & Fix
-    current_year=$(date +%Y)
-    if [ "$current_year" -lt 2024 ]; then
-        log_warn "System clock is incorrect (Year $current_year). Attempting to fix..."
-        if ! ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1; then
-            log_warn "No internet to fix clock. SSL downloads will likely fail."
-        else
-            ntpd -q -p pool.ntp.org
-            log_ok "Clock updated to: $(date)"
+    # Subnet Conflict Detection
+    # If LAN and WAN share the same subnet, outbound traffic may loop back.
+    _lan_addr=$(ip -4 addr show dev br-lan 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -1)
+    _wan_gw=$(ip route show default 2>/dev/null | awk '/default via/{print $3; exit}')
+    if [ -n "$_lan_addr" ] && [ -n "$_wan_gw" ] && [ "${_lan_addr%.*}" = "${_wan_gw%.*}" ]; then
+        log_warn "Subnet conflict detected (LAN: $_lan_addr, WAN Gateway: $_wan_gw)"
+        show_subnet_hint
+    fi
+
+    # Internet Connectivity Check
+    log_info "Checking internet connectivity..."
+    _connected=0
+    for i in $(seq 1 5); do
+        if ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1; then
+            _connected=1
+            break
         fi
+        [ "$i" -lt 5 ] && sleep 2
+    done
+
+    if [ "$_connected" -eq 1 ]; then
+        log_ok "Internet connection detected."
+        log_info "Synchronizing system clock..."
+        _synced=0
+        for _ntp in 216.239.35.0 162.159.200.1 216.239.35.4; do
+            ntpd -q -n -p "$_ntp" 2>/dev/null && _synced=1 && break
+        done
+        if [ "$_synced" = "0" ]; then
+            # Fallback: read time from HTTP Date header
+            _d=$(uclient-fetch -q -O /dev/null http://1.1.1.1/ 2>&1 | sed -n 's/.*Date: //p' | head -1)
+            [ -n "$_d" ] && date -s "$_d" >/dev/null 2>&1 && _synced=1
+        fi
+        hwclock -w 2>/dev/null || true
+        log_ok "Clock updated to: $(date)"
     else
-        log_ok "System clock is sane ($current_year)."
+        log_warn "No internet connection detected."
+        # Show the hint again as it is the most common cause of no internet in WISP mode
+        show_subnet_hint
     fi
 
     # Confirmation
@@ -218,7 +254,33 @@ backup_uci() {
 
 setup_packages() {
     log_step "Installing packages..."
-    run_cmd apk update || log_warn "apk update failed, continuing anyway..."
+
+    # --- Subnet Conflict Check ---
+    # We no longer apply an automatic 'onlink' fix. If the conflict is present,
+    # the user is advised to fix it manually as per the troubleshooting note.
+    _lan_addr=$(ip -4 addr show dev br-lan 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -1)
+    _wan_gw=$(ip route show default 2>/dev/null | awk '/default via/{print $3; exit}')
+    if [ -n "$_lan_addr" ] && [ -n "$_wan_gw" ] && [ "${_lan_addr%.*}" = "${_wan_gw%.*}" ]; then
+        log_warn "Subnet conflict present. Package installation will likely fail."
+        show_subnet_hint
+    fi
+
+    # --- Fix 2: Force IPv4 for apk ---
+    # Replace /usr/bin/wget with a wrapper that passes -4 to uclient-fetch.
+    # This prevents apk from attempting IPv6 connections that may return EPERM.
+    if [ -x /usr/bin/wget ] && [ ! -f /usr/bin/wget.orig ]; then
+        mv /usr/bin/wget /usr/bin/wget.orig
+        printf '#!/bin/sh
+exec /usr/bin/wget.orig -4 "$@"
+' > /usr/bin/wget
+        chmod +x /usr/bin/wget
+    fi
+
+    run_cmd apk update || {
+        log_warn "apk update failed."
+        show_subnet_hint
+        log_info "Continuing anyway..."
+    }
 
     run_cmd apk add ca-bundle ca-certificates curl sqm-scripts luci-app-sqm kmod-sched-cake https-dns-proxy luci-app-https-dns-proxy watchcat nano
 
