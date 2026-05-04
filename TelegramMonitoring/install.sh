@@ -44,14 +44,16 @@ if [ -f "$SRC_DIR/99-ssh-notify.sh" ]; then
     chmod +x /etc/profile.d/99-ssh-notify.sh
 fi
 
-# Install config if not exists
-if [ ! -f /etc/telegram.conf ]; then
+# Install config (Overwrite if missing or if it still has the placeholder)
+if [ ! -f /etc/telegram.conf ] || grep -q "YOUR_SCRIPT_ID_HERE" /etc/telegram.conf; then
+    echo "Updating/Installing /etc/telegram.conf..."
     if [ -f "$SRC_DIR/telegram.conf" ]; then
         cp "$SRC_DIR/telegram.conf" /etc/telegram.conf
     else
         cp "$SRC_DIR/telegram.conf.example" /etc/telegram.conf
     fi
-    echo "Please edit /etc/telegram.conf with your Webhook URL"
+else
+    echo "Preserving existing /etc/telegram.conf"
 fi
 
 # Setup cron for router_monitor
