@@ -23,16 +23,12 @@ Automated configuration and advanced monitoring suite for OpenWrt routers. This 
    ```
 3. SSH into the router:
    ```bash
-   cd /tmp
+   ssh root@192.168.1.1
    ```
 4. Run the script:
    ```bash
-   sh OpenWrtSetup.sh --config setup.conf
-   ```
-   ssh root@192.168.1.1
-   chmod +x /tmp/OpenWrtSetup.sh
+   sh /tmp/OpenWrtSetup.sh --config /tmp/setup.conf
    # Optional: run with --dry-run first to see what will change
-   sh /tmp/OpenWrtSetup.sh
    ```
 4. Follow the prompts. The router will automatically reboot upon successful completion.
 
@@ -60,13 +56,12 @@ The `TelegramMonitoring` directory contains scripts to track router health, auth
    ```
 3. Transfer the directory to your router:
    ```bash
-   scp -r TelegramMonitoring root@192.168.11.1:/tmp/
+   scp -O -r TelegramMonitoring root@192.168.11.1:/tmp/
    ```
 4. Run the installer:
    ```bash
    ssh root@192.168.11.1
-   chmod +x /tmp/TelegramMonitoring/install.sh
-   /tmp/TelegramMonitoring/install.sh
+   sh /tmp/TelegramMonitoring/install.sh
    ```
 
 ### Included Monitors
