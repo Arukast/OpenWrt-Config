@@ -335,7 +335,7 @@ setup_network() {
     run_uci set network.wwan.mtu="$SQM_MTU"
     run_uci set network.wwan.peerdns='0'
     run_uci -q delete network.wwan.dns || true
-    run_uci add_list network.wwan.dns='8.8.8.8'
+    run_uci add_list network.wwan.dns='9.9.9.9'
     run_uci add_list network.wwan.dns='1.1.1.1'
 
     run_uci set network.globals.packet_steering='2'
@@ -467,8 +467,9 @@ setup_dns() {
     log_step "Configuring DoH + dnsmasq..."
     [ -f /etc/config/https-dns-proxy ] || run_cmd touch /etc/config/https-dns-proxy
 
-    run_uci -q delete https-dns-proxy.@https-dns-proxy[0] || true
-    run_uci -q delete https-dns-proxy.@https-dns-proxy[1] || true
+    while uci -q get https-dns-proxy.@https-dns-proxy[0] >/dev/null 2>&1; do
+        run_uci -q delete https-dns-proxy.@https-dns-proxy[0]
+    done
 
     # Primary
     run_uci add https-dns-proxy https-dns-proxy
