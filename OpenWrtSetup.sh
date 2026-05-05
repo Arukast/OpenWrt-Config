@@ -581,6 +581,7 @@ setup_cron_adblock() {
     log_step "Configuring cron + adblock-lean..."
     if [ "$DRY_RUN" = "0" ]; then
         cat > /etc/crontabs/root << 'CRON'
+# Weekly reboot every Sunday at 03:00
 0 3 * * 0 reboot
 0 5 * * * RANDOM_DELAY=1 /etc/init.d/adblock-lean start 1>/dev/null
 CRON
