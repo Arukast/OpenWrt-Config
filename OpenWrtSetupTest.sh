@@ -270,7 +270,17 @@ fi
 # =============================================================================
 section "6. Firewall"
 
-if uci show firewall | grep -q "\.src='lan'.*\.dest='\(wan\|wwan\)'"; then
+lan_wan_fwd=0
+for fwd in $(uci show firewall 2>/dev/null | grep "=forwarding$" | awk -F'=' '{print $1}'); do
+    src=$(uci -q get ${fwd}.src)
+    dest=$(uci -q get ${fwd}.dest)
+    if [ "$src" = "lan" ] && { [ "$dest" = "wan" ] || [ "$dest" = "wwan" ]; }; then
+        lan_wan_fwd=1
+        break
+    fi
+done
+
+if [ "$lan_wan_fwd" -eq 1 ]; then
     pass "LAN -> WAN forwarding OK"
 else
     warn "LAN -> WAN forwarding missing" "Check firewall zones"
