@@ -1,0 +1,24 @@
+# 1. Bersihkan sisa konfigurasi LED sebelumnya
+uci -q delete system.led_blue_data
+uci -q delete system.led_red_cpu
+uci -q delete system.led_blue
+uci -q delete system.led_red
+
+# 2. Konfigurasi Biru: Menyala statis saat WISP terhubung
+uci set system.led_blue=led
+uci set system.led_blue.name='WISP Link'
+uci set system.led_blue.sysfs='blue:status'
+uci set system.led_blue.trigger='netdev'
+uci set system.led_blue.dev='phy0-sta0'
+uci set system.led_blue.mode='link'
+
+# 3. Konfigurasi Merah: Denyut nadi konstan (Heartbeat)
+uci set system.led_red=led
+uci set system.led_red.name='CPU Heartbeat'
+uci set system.led_red.sysfs='red:status'
+uci set system.led_red.trigger='heartbeat'
+
+# 4. Simpan dan terapkan pengaturan
+uci commit system
+/etc/init.d/system reload
+/etc/init.d/led restart
