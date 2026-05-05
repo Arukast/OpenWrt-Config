@@ -24,12 +24,12 @@ WIFI_KEY="CHANGE_ME_SUPER_SECRET_KEY" # REQUIRED: Change this! (Must be 8-63 cha
 
 CH_2G="6"                        # Options: 1, 6, 11 (Auto is not recommended for WISP)
 # Options for HTMODE_2G: HT20, HT40 (WiFi N) | VHT20, VHT40 (WiFi AC) | HE20, HE40 (WiFi AX)
-HTMODE_2G="HE20"                 
+HTMODE_2G="HT20"                 
 TXPWR_2G="13"                    # Options: 1-30 (Depends on country regulatory domain)
 
 CH_5G="157"                      # Options: 36, 40, 44, 48, 149, 153, 157, 161
 # Options for HTMODE_5G: VHT20, VHT40, VHT80, VHT160 (WiFi AC) | HE20, HE40, HE80, HE160 (WiFi AX)
-HTMODE_5G="HE80"                 
+HTMODE_5G="VHT80"                 
 TXPWR_5G="17"                    # Options: 1-30 (Depends on country regulatory domain)
 
 COUNTRY="ID"                     # Options: ID, US, JP, DE, etc. (ISO 3166-1 alpha-2 code)
@@ -46,7 +46,9 @@ SQM_MTU="1480"                   # Options: 1500 (Standard), 1492 (PPPoE), 1480 
 
 # --- ZRAM ---
 ZRAM_MB="128"                    # Options: Half of your total RAM (e.g., 64, 128, 256). Empty to disable
-ZRAM_ALGO="lzo-rle"              # Options: lzo, lzo-rle, lz4, zstd (zstd is best if supported)
+# Options: lzo -> lzo-rle -> lz4 -> zstd (Ordered from fastest/lowest CPU to best compression/highest CPU)
+# Note: zstd gives the best compression but can cause high CPU load/lag on weak routers. lzo-rle is the safest fast default.
+ZRAM_ALGO="lzo-rle"              
 
 # --- DNS over HTTPS ---
 DOH_PRIMARY_BOOTSTRAP="1.1.1.1,1.0.0.1"          # Options: Comma separated DNS IPs
