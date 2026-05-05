@@ -282,7 +282,7 @@ exec /usr/bin/wget.orig -4 "$@"
         log_info "Continuing anyway..."
     }
 
-    run_cmd apk add ca-bundle ca-certificates curl sqm-scripts luci-app-sqm kmod-sched-cake https-dns-proxy luci-app-https-dns-proxy watchcat nano
+    run_cmd apk add ca-bundle ca-certificates curl sqm-scripts luci-app-sqm kmod-sched-cake https-dns-proxy luci-app-https-dns-proxy watchcat nano iperf3
 
     if [ "$ENABLE_TAILSCALE" = "1" ]; then
         run_cmd apk add tailscale && log_ok "Tailscale installed." || log_warn "Tailscale install failed."
@@ -354,22 +354,28 @@ setup_wireless() {
         run_uci set wireless.${radio}.disabled='0'
         
         if [ "$radio" = "$RADIO_2G" ]; then
+            run_uci set wireless.${radio}.band="2g"
             run_uci set wireless.${radio}.channel="$CH_2G"
             run_uci set wireless.${radio}.htmode="$HTMODE_2G"
             run_uci set wireless.${radio}.txpower="$TXPWR_2G"
             ssid_var="$WIFI_SSID_2G"
         else
+            run_uci set wireless.${radio}.band="5g"
             run_uci set wireless.${radio}.channel="$CH_5G"
             run_uci set wireless.${radio}.htmode="$HTMODE_5G"
             run_uci set wireless.${radio}.txpower="$TXPWR_5G"
             ssid_var="$WIFI_SSID_5G"
         fi
         
-        # Configure the AP interface(s) attached to this radio
-        for iface in $(uci show wireless | grep "mode='ap'" | grep "device='${radio}'" | awk -F'.' '{print $2}'); do
-            run_uci set wireless.${iface}.ssid="$ssid_var"
-            run_uci set wireless.${iface}.encryption='sae-mixed'
-            run_uci set wireless.${iface}.key="$WIFI_KEY"
+        # Configure the AP and STA interfaces attached to this radio
+        for iface in $(uci show wireless | grep "device='${radio}'" | awk -F'.' '{print $2}' | sort -u); do
+            run_uci set wireless.${iface}.disabled='0'
+            # Only set SSID/Key for AP interfaces, leave STA interfaces untouched to preserve WISP connection
+            if uci get wireless.${iface}.mode 2>/dev/null | grep -q "ap"; then
+                run_uci set wireless.${iface}.ssid="$ssid_var"
+                run_uci set wireless.${iface}.encryption='sae-mixed'
+                run_uci set wireless.${iface}.key="$WIFI_KEY"
+            fi
         done
     done
     run_uci commit wireless
@@ -518,6 +524,13 @@ setup_firewall() {
     for z in wan1 wan2 wan3 wan4 wan5 wwan2; do
         run_uci -q delete firewall.$z || true
     done
+
+    # Ensure wwan interface is in the default wan zone for NAT/Internet access
+    _wan_zone=$(uci show firewall 2>/dev/null | grep "name='wan'" | awk -F'.' '{print $2}' | head -1 || true)
+    if [ -n "$_wan_zone" ]; then
+        run_uci del_list firewall.${_wan_zone}.network='wwan' 2>/dev/null || true
+        run_uci add_list firewall.${_wan_zone}.network='wwan'
+    fi
 
     if [ "$ENABLE_TAILSCALE" = "1" ]; then
         _ts_zone=$(uci show firewall 2>/dev/null | grep "name='tailscale'" | awk -F'.' '{print $2}' || true)
