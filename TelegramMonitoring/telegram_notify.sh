@@ -63,15 +63,11 @@ RETRY_DELAY=2
 ATTEMPT=1
 
 while [ $ATTEMPT -le $MAX_RETRIES ]; do
-    # We use --post301 --post302 --post303 to ensure POST is maintained through redirects
-    # If these flags are not supported by the local curl, we fall back to standard -L
+    # curl with -d automatically uses POST. For the 302 redirect from Google Apps Script,
+    # -L automatically switches to GET for the final destination, which prevents 405 errors.
     HTTP_CODE=$(curl -s -L -w "%{http_code}" -o /dev/null \
-        --post301 --post302 --post303 \
         -H "Content-Type: application/json" \
-        -d "$JSON_PAYLOAD" "$GAS_URL" 2>/dev/null || \
-    curl -s -L -w "%{http_code}" -o /dev/null -X POST \
-        -H "Content-Type: application/json" \
-        -d "$JSON_PAYLOAD" "$GAS_URL")
+        -d "$JSON_PAYLOAD" "$GAS_URL" 2>/dev/null)
         
     if [ "$HTTP_CODE" = "200" ]; then
         exit 0
