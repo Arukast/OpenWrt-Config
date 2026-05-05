@@ -37,7 +37,6 @@ After the router reboots, transfer and run the test script:
 ```bash
 scp -O OpenWrtSetupTest.sh root@192.168.11.1:/tmp/
 ssh root@192.168.11.1
-chmod +x /tmp/OpenWrtSetupTest.sh
 sh /tmp/OpenWrtSetupTest.sh
 ```
 
