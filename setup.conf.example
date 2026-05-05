@@ -4,62 +4,64 @@
 # =============================================================================
 
 # --- System ---
-HOSTNAME="OpenWrt-WISP"
-TIMEZONE="WIB-7"         # e.g., WIB-7, WITA-8, WIT-9
-ZONENAME="Asia/Jakarta"  # e.g., Asia/Jakarta, Asia/Makassar
-LAN_IP="192.168.11.1"    # Avoids conflict with upstream 192.168.1.1
-LAN_NETMASK="255.255.255.0"
+HOSTNAME="OpenWrt-WISP"          # Options: Any valid hostname string (no spaces)
+TIMEZONE="WIB-7"                 # Options: WIB-7, WITA-8, WIT-9, UTC, EST5EDT, etc.
+ZONENAME="Asia/Jakarta"          # Options: Asia/Jakarta, Asia/Makassar, UTC, America/New_York
+LAN_IP="192.168.11.1"            # Options: Any private IP (e.g., 192.168.x.1). Avoids conflict with 192.168.1.1
+LAN_NETMASK="255.255.255.0"      # Options: 255.255.255.0 (/24) is standard
 
 # --- Wireless WAN Interface (WISP/STA) ---
-WWAN_IFACE="phy0-sta0"
+WWAN_IFACE="phy0-sta0"           # Options: phy0-sta0, wlan0 (Check via 'iw dev')
 
 # --- Radio Names ---
-RADIO_2G="radio0"
-RADIO_5G="radio1"       # Leave empty if no 5 GHz radio: RADIO_5G=""
+RADIO_2G="radio0"                # Options: radio0, radio1 (Check via 'uci show wireless')
+RADIO_5G="radio1"                # Options: radio1, radio0. Leave empty if no 5 GHz radio: RADIO_5G=""
 
 # --- Wireless Config ---
-WIFI_SSID_2G="OpenWrt-WISP-2G"
-WIFI_SSID_5G="OpenWrt-WISP-5G"
-WIFI_KEY="CHANGE_ME_SUPER_SECRET_KEY" # REQUIRED: Change this!
+WIFI_SSID_2G="OpenWrt-WISP-2G"   # Options: Any string
+WIFI_SSID_5G="OpenWrt-WISP-5G"   # Options: Any string
+WIFI_KEY="CHANGE_ME_SUPER_SECRET_KEY" # REQUIRED: Change this! (Must be 8-63 characters)
 
-CH_2G="6"
-HTMODE_2G="HE20"
-TXPWR_2G="13"
+CH_2G="6"                        # Options: 1, 6, 11 (Auto is not recommended for WISP)
+# Options for HTMODE_2G: HT20, HT40 (WiFi N) | VHT20, VHT40 (WiFi AC) | HE20, HE40 (WiFi AX)
+HTMODE_2G="HE20"                 
+TXPWR_2G="13"                    # Options: 1-30 (Depends on country regulatory domain)
 
-CH_5G="157"
-HTMODE_5G="HE80"
-TXPWR_5G="17"
+CH_5G="157"                      # Options: 36, 40, 44, 48, 149, 153, 157, 161
+# Options for HTMODE_5G: VHT20, VHT40, VHT80, VHT160 (WiFi AC) | HE20, HE40, HE80, HE160 (WiFi AX)
+HTMODE_5G="HE80"                 
+TXPWR_5G="17"                    # Options: 1-30 (Depends on country regulatory domain)
 
-COUNTRY="ID"
-LAN_PORTS=""            # Leave empty to keep defaults
+COUNTRY="ID"                     # Options: ID, US, JP, DE, etc. (ISO 3166-1 alpha-2 code)
+LAN_PORTS=""                     # Options: "1 2 3 4" or empty to keep defaults
 
 # --- SQM CAKE Bandwidth (kbps) ---
-DL_KBPS="23000"
-UL_KBPS="11000"
+DL_KBPS="23000"                  # Options: Set to 90-95% of your WISP download speed (0 to disable)
+UL_KBPS="11000"                  # Options: Set to 90-95% of your WISP upload speed (0 to disable)
 
 # --- SQM MTU / Overhead ---
-SQM_OVERHEAD="44"
-SQM_LINKLAYER="ethernet"
-SQM_MTU="1480"
+SQM_OVERHEAD="44"                # Options: 44 (Ethernet), 34 (VDSL2), 0 (none)
+SQM_LINKLAYER="ethernet"         # Options: ethernet, atm, none
+SQM_MTU="1480"                   # Options: 1500 (Standard), 1492 (PPPoE), 1480 (Tailscale/WireGuard)
 
 # --- ZRAM ---
-ZRAM_MB="128"
-ZRAM_ALGO="lzo-rle"
+ZRAM_MB="128"                    # Options: Half of your total RAM (e.g., 64, 128, 256). Empty to disable
+ZRAM_ALGO="lzo-rle"              # Options: lzo, lzo-rle, lz4, zstd (zstd is best if supported)
 
 # --- DNS over HTTPS ---
-DOH_PRIMARY_BOOTSTRAP="1.1.1.1,1.0.0.1"
-DOH_PRIMARY_URL="https://cloudflare-dns.com/dns-query"
-DOH_PRIMARY_PORT="5053"
+DOH_PRIMARY_BOOTSTRAP="1.1.1.1,1.0.0.1"          # Options: Comma separated DNS IPs
+DOH_PRIMARY_URL="https://cloudflare-dns.com/dns-query" # Options: Any DoH resolver URL
+DOH_PRIMARY_PORT="5053"                          # Options: Local port to listen on
 
-DOH_SECONDARY_BOOTSTRAP="9.9.9.9,149.112.112.112"
-DOH_SECONDARY_URL="https://dns.quad9.net/dns-query"
-DOH_SECONDARY_PORT="5054"
+DOH_SECONDARY_BOOTSTRAP="9.9.9.9,149.112.112.112" # Options: Comma separated DNS IPs
+DOH_SECONDARY_URL="https://dns.quad9.net/dns-query"    # Options: Any DoH resolver URL
+DOH_SECONDARY_PORT="5054"                        # Options: Local port to listen on
 
 # --- NTP Servers ---
-NTP_SERVERS="0.id.pool.ntp.org 1.id.pool.ntp.org 2.id.pool.ntp.org 3.id.pool.ntp.org"
+NTP_SERVERS="0.id.pool.ntp.org 1.id.pool.ntp.org 2.id.pool.ntp.org 3.id.pool.ntp.org" # Options: Space separated NTP servers
 
 # --- Feature Toggles (1=enabled, 0=disabled) ---
-ENABLE_TAILSCALE=1
-ENABLE_ADBLOCK_LEAN=1
-ENABLE_WANUSB_ZONE=0
-DISABLE_IPV6=1
+ENABLE_TAILSCALE=1               # Options: 1 (enable), 0 (disable)
+ENABLE_ADBLOCK_LEAN=1            # Options: 1 (enable), 0 (disable)
+ENABLE_WANUSB_ZONE=0             # Options: 1 (enable), 0 (disable)
+DISABLE_IPV6=1                   # Options: 1 (disable IPv6 completely), 0 (keep IPv6)
