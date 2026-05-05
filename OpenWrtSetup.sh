@@ -282,7 +282,7 @@ exec /usr/bin/wget.orig -4 "$@"
         log_info "Continuing anyway..."
     }
 
-    run_cmd apk add ca-bundle ca-certificates curl sqm-scripts luci-app-sqm kmod-sched-cake https-dns-proxy luci-app-https-dns-proxy watchcat nano iperf3
+    run_cmd apk add ca-bundle ca-certificates curl sqm-scripts luci-app-sqm kmod-sched-cake https-dns-proxy luci-app-https-dns-proxy watchcat nano iperf3 htop
 
     if [ "$ENABLE_TAILSCALE" = "1" ]; then
         run_cmd apk add tailscale && log_ok "Tailscale installed." || log_warn "Tailscale install failed."
