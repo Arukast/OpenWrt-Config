@@ -24,13 +24,14 @@ send_alert() {
     LOCK_NAME="$1"
     KATEGORI="$2"
     PESAN="$3"
+    CUSTOM_COOLDOWN="${4:-$COOLDOWN}"
     LOCK_FILE="${LOCK_DIR}/${LOCK_NAME}.lock"
     NOW=$(date +%s)
 
     if [ -f "$LOCK_FILE" ]; then
         LAST_SENT=$(cat "$LOCK_FILE")
         DIFF=$((NOW - LAST_SENT))
-        if [ "$DIFF" -lt "$COOLDOWN" ]; then
+        if [ "$DIFF" -lt "$CUSTOM_COOLDOWN" ]; then
             return 0
         fi
     fi
@@ -58,6 +59,15 @@ check_ram() {
 
 check_tailscale() {
     if command -v tailscale >/dev/null 2>&1; then
+        TS_IP=$(tailscale ip -4 2>/dev/null)
+        if [ -z "$TS_IP" ] || tailscale status 2>/dev/null | grep -qE "Logged out|NeedsLogin"; then
+            if [ ! -f "${LOCK_DIR}/tailscale_unconfigured.lock" ]; then
+                /usr/bin/telegram_notify.sh "VPN" "Tailscale is installed but not configured (Not logged in)."
+                touch "${LOCK_DIR}/tailscale_unconfigured.lock"
+            fi
+            return
+        fi
+
         if ! ping -c 1 -W 2 100.100.100.100 > /dev/null 2>&1; then
             send_alert "tailscale" "VPN" "$MSG_TAILSCALE_DOWN"
         else
@@ -83,10 +93,19 @@ check_wifi() {
 }
 
 check_latency() {
-    LATENCY=$(ping -c 3 -q 8.8.8.8 2>/dev/null | awk -F'/' 'END{print int($4)}')
-    if [ -n "$LATENCY" ] && [ "$LATENCY" -gt 150 ]; then
-        MSG=$(printf "$MSG_LATENCY_HIGH" "$LATENCY")
-        send_alert "latensi" "UPLINK" "$MSG"
+    # Quick check: 1 packet to see if latency is high
+    QUICK_LATENCY=$(ping -c 1 -W 2 8.8.8.8 2>/dev/null | awk -F'/' 'END{print int($4)}')
+    
+    if [ -z "$QUICK_LATENCY" ] || [ "$QUICK_LATENCY" -gt 150 ]; then
+        # High latency detected or packet loss, confirm with 5-second test (5 packets)
+        AVG_LATENCY=$(ping -c 5 -q 8.8.8.8 2>/dev/null | awk -F'/' 'END{print int($4)}')
+        if [ -n "$AVG_LATENCY" ] && [ "$AVG_LATENCY" -gt 150 ]; then
+            MSG=$(printf "$MSG_LATENCY_HIGH" "$AVG_LATENCY")
+            # Override default 15 min cooldown -> Use 5 mins (300s) for latency alerts
+            send_alert "latensi" "UPLINK" "$MSG" 300
+        else
+            reset_alert "latensi"
+        fi
     else
         reset_alert "latensi"
     fi
