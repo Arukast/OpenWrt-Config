@@ -44,14 +44,13 @@ if [ -f "$SRC_DIR/99-ssh-notify.sh" ]; then
     chmod +x /etc/profile.d/99-ssh-notify.sh
 fi
 
-# Install config (Overwrite if missing or if it still has the placeholder)
-if [ ! -f /etc/telegram.conf ] || grep -q "YOUR_SCRIPT_ID_HERE" /etc/telegram.conf; then
-    echo "Updating/Installing /etc/telegram.conf..."
-    if [ -f "$SRC_DIR/telegram.conf" ]; then
-        cp "$SRC_DIR/telegram.conf" /etc/telegram.conf
-    else
-        cp "$SRC_DIR/telegram.conf.example" /etc/telegram.conf
-    fi
+# Install config
+if [ -f "$SRC_DIR/telegram.conf" ]; then
+    echo "Overwriting /etc/telegram.conf with local copy..."
+    cp "$SRC_DIR/telegram.conf" /etc/telegram.conf
+elif [ ! -f /etc/telegram.conf ] || grep -q "YOUR_SCRIPT_ID_HERE" /etc/telegram.conf; then
+    echo "Installing default /etc/telegram.conf..."
+    cp "$SRC_DIR/telegram.conf.example" /etc/telegram.conf
 else
     echo "Preserving existing /etc/telegram.conf"
 fi
