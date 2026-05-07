@@ -40,6 +40,18 @@ ssh root@192.168.11.1
 sh /tmp/OpenWrtSetupTest.sh
 ```
 
+### SQM Speed Optimization (Optional)
+If you want to automatically calculate and apply the optimal SQM (Smart Queue Management) values based on your actual internet speed, use the included `SQM_Speedtest.sh` script.
+
+This script tests your download and upload speeds, performs a **CPU Bottleneck Analysis** to ensure your router can handle SQM at your current speed, and can automatically apply the optimized values directly to your live router or `setup.conf`.
+
+**To run on the router (Recommended for live configuration):**
+```bash
+scp -O SQM_Speedtest.sh root@192.168.11.1:/tmp/
+ssh root@192.168.11.1
+sh /tmp/SQM_Speedtest.sh
+```
+
 ---
 
 ## 2. Telegram Monitoring Setup

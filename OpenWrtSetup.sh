@@ -394,16 +394,21 @@ setup_wireless() {
 setup_sqm() {
     log_step "Configuring SQM CAKE..."
     uci -q get sqm.@queue[0] >/dev/null 2>&1 || run_uci add sqm queue
-    run_uci set sqm.@queue[0].enabled='1'
-    run_uci set sqm.@queue[0].interface="$WWAN_IFACE"
-    run_uci set sqm.@queue[0].download="$DL_KBPS"
-    run_uci set sqm.@queue[0].upload="$UL_KBPS"
-    run_uci set sqm.@queue[0].qdisc='cake'
-    run_uci set sqm.@queue[0].script='piece_of_cake.qos'
-    run_uci set sqm.@queue[0].linklayer="$SQM_LINKLAYER"
-    run_uci set sqm.@queue[0].overhead="$SQM_OVERHEAD"
-    run_uci set sqm.@queue[0].linklayer_advanced='1'
-    run_uci set sqm.@queue[0].tcMPU='84'
+    if [ "$DL_KBPS" = "0" ] && [ "$UL_KBPS" = "0" ]; then
+        run_uci set sqm.@queue[0].enabled='0'
+        log_info "SQM is disabled (Speed set to 0)."
+    else
+        run_uci set sqm.@queue[0].enabled='1'
+        run_uci set sqm.@queue[0].interface="$WWAN_IFACE"
+        run_uci set sqm.@queue[0].download="$DL_KBPS"
+        run_uci set sqm.@queue[0].upload="$UL_KBPS"
+        run_uci set sqm.@queue[0].qdisc='cake'
+        run_uci set sqm.@queue[0].script='piece_of_cake.qos'
+        run_uci set sqm.@queue[0].linklayer="$SQM_LINKLAYER"
+        run_uci set sqm.@queue[0].overhead="$SQM_OVERHEAD"
+        run_uci set sqm.@queue[0].linklayer_advanced='1'
+        run_uci set sqm.@queue[0].tcMPU='84'
+    fi
     run_uci commit sqm
     log_ok "SQM config committed."
 }
