@@ -94,12 +94,8 @@ for i in $(seq 1 $TEST_ITERATIONS); do
     ping 8.8.8.8 > /tmp/dl_ping_raw 2>/dev/null &
     PING_PID=$!
     
-    curl -s -L -w "%{speed_download}" -o /dev/null "https://speed.cloudflare.com/__down?bytes=$DL_BYTES_SIZE" | sed 's/,/\./g' > /tmp/dl_speed &
-    CURL_PID=$!
-    wait $CURL_PID
+    DL_BPS=$(curl -4 -k -s -L -w "%{speed_download}" -o /dev/null "https://speed.cloudflare.com/__down?bytes=$DL_BYTES_SIZE" | sed 's/,/\./g')
     kill $PING_PID 2>/dev/null || true
-    
-    DL_BPS=$(cat /tmp/dl_speed)
     DL_PING_RUN=$(awk -F'time=' '/time=/{split($2,a," "); sum+=a[1]; count++} END{if(count>0) printf "%.0f", sum/count; else print 0}' /tmp/dl_ping_raw)
 
     log_info "Run $i/$TEST_ITERATIONS: Testing Upload (approx $((${UL_BYTES_SIZE}/1000000))MB)..."
@@ -107,15 +103,12 @@ for i in $(seq 1 $TEST_ITERATIONS); do
     PING_PID=$!
     
     dd if=/dev/urandom of=/tmp/sqm_up_test bs=1000 count=$((${UL_BYTES_SIZE}/1000)) 2>/dev/null
-    curl -s -L -w "%{speed_upload}" -o /dev/null -T /tmp/sqm_up_test "https://speed.cloudflare.com/__up" | sed 's/,/\./g' > /tmp/ul_speed &
-    CURL_PID=$!
-    wait $CURL_PID
+    UL_BPS=$(curl -4 -k -s -L -w "%{speed_upload}" -o /dev/null -T /tmp/sqm_up_test "https://speed.cloudflare.com/__up" | sed 's/,/\./g')
     kill $PING_PID 2>/dev/null || true
     
-    UL_BPS=$(cat /tmp/ul_speed)
     UL_PING_RUN=$(awk -F'time=' '/time=/{split($2,a," "); sum+=a[1]; count++} END{if(count>0) printf "%.0f", sum/count; else print 0}' /tmp/ul_ping_raw)
     
-    rm -f /tmp/sqm_up_test /tmp/dl_speed /tmp/ul_speed /tmp/dl_ping_raw /tmp/ul_ping_raw
+    rm -f /tmp/sqm_up_test /tmp/dl_ping_raw /tmp/ul_ping_raw
     
     if [ -n "$DL_BPS" ] && [ -n "$UL_BPS" ] && [ "$DL_BPS" != "0" ] && [ "$UL_BPS" != "0" ] && [ "$DL_BPS" != "0.000" ] && [ "$UL_BPS" != "0.000" ]; then
         DL_KBPS_RUN=$(awk -v bps="$DL_BPS" 'BEGIN { printf "%.0f", (bps * 8) / 1000 }')
