@@ -148,7 +148,7 @@ load_config() {
     : ${ENABLE_TAILSCALE:=1}
     : ${ENABLE_ADBLOCK_LEAN:=1}
     : ${ENABLE_WANUSB_ZONE:=0}
-    : ${DISABLE_IPV6:=1}
+    : ${ENABLE_IPV6:=1}
 
     if [ "$WIFI_KEY" = "CHANGE_ME" ] || [ "$WIFI_KEY" = "CHANGE_ME_SUPER_SECRET_KEY" ]; then
         _abort "WIFI_KEY is not set to a secure value. Please update your config file."
@@ -335,11 +335,11 @@ setup_network() {
     run_uci set network.wwan.mtu="$SQM_MTU"
     run_uci set network.wwan.peerdns='0'
     run_uci -q delete network.wwan.dns || true
-    run_uci add_list network.wwan.dns='9.9.9.9'
     run_uci add_list network.wwan.dns='1.1.1.1'
+    run_uci add_list network.wwan.dns='9.9.9.9'
 
     run_uci set network.globals.packet_steering='2'
-    [ "$DISABLE_IPV6" = "1" ] && run_uci set network.lan.ipv6='0'
+    [ "$ENABLE_IPV6" = "0" ] && run_uci set network.lan.ipv6='0'
 
     run_uci commit network
     log_ok "Network config committed."
@@ -452,7 +452,7 @@ ZRAMEOF
 net.ipv4.tcp_congestion_control=cubic
 net.core.default_qdisc=fq_codel
 SYSCTL
-        if [ "$DISABLE_IPV6" = "1" ]; then
+        if [ "$ENABLE_IPV6" = "0" ]; then
             cat >> /etc/sysctl.d/99-custom.conf << 'SYSCTL'
 net.ipv6.conf.all.disable_ipv6=1
 net.ipv6.conf.default.disable_ipv6=1
@@ -501,7 +501,7 @@ setup_dns() {
     run_uci add_list dhcp.@dnsmasq[0].address='/mask.icloud.com/'
     run_uci add_list dhcp.@dnsmasq[0].address='/mask-h2.icloud.com/'
 
-    if [ "$DISABLE_IPV6" = "1" ]; then
+    if [ "$ENABLE_IPV6" = "0" ]; then
         run_uci set dhcp.lan.dhcpv6='disabled'
         run_uci set dhcp.lan.ra='disabled'
         run_uci set dhcp.lan.ndp='disabled'

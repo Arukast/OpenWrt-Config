@@ -66,4 +66,4 @@ NTP_SERVERS="0.id.pool.ntp.org 1.id.pool.ntp.org 2.id.pool.ntp.org 3.id.pool.ntp
 ENABLE_TAILSCALE=1               # Options: 1 (enable), 0 (disable)
 ENABLE_ADBLOCK_LEAN=1            # Options: 1 (enable), 0 (disable)
 ENABLE_WANUSB_ZONE=0             # Options: 1 (enable), 0 (disable)
-DISABLE_IPV6=1                   # Options: 1 (disable IPv6 completely), 0 (keep IPv6)
+ENABLE_IPV6=0                    # Options: 1 (Enable IPv6), 0 (disable IPv6)
