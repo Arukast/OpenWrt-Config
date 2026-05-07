@@ -145,6 +145,8 @@ load_config() {
     : ${DOH_SECONDARY_BOOTSTRAP:="9.9.9.9,149.112.112.112"}
     : ${DOH_SECONDARY_URL:="https://dns.quad9.net/dns-query"}
     : ${DOH_SECONDARY_PORT:="5054"}
+    : ${IPV6_DNS_PRIMARY:="2606:4700:4700::1111"}
+    : ${IPV6_DNS_SECONDARY:="2620:fe::fe"}
     : ${NTP_SERVERS:="0.id.pool.ntp.org 1.id.pool.ntp.org 2.id.pool.ntp.org 3.id.pool.ntp.org"}
     : ${ENABLE_TAILSCALE:=1}
     : ${ENABLE_ADBLOCK_LEAN:=1}
@@ -368,6 +370,9 @@ setup_network() {
             run_uci set network.wwan6.reqaddress='try'
             run_uci set network.wwan6.reqprefix='auto'
             run_uci set network.wwan6.peerdns='0'
+            run_uci -q delete network.wwan6.dns || true
+            run_uci add_list network.wwan6.dns="$IPV6_DNS_PRIMARY"
+            run_uci add_list network.wwan6.dns="$IPV6_DNS_SECONDARY"
         else
             run_uci set network.lan.ipv6='0'
         fi
@@ -401,6 +406,9 @@ setup_network() {
             run_uci set network.wan6.reqaddress='try'
             run_uci set network.wan6.reqprefix='auto'
             run_uci set network.wan6.peerdns='0'
+            run_uci -q delete network.wan6.dns || true
+            run_uci add_list network.wan6.dns="$IPV6_DNS_PRIMARY"
+            run_uci add_list network.wan6.dns="$IPV6_DNS_SECONDARY"
         else
             run_uci set network.lan.ipv6='0'
             run_uci -q delete network.wan6 || true
@@ -603,6 +611,19 @@ setup_dns() {
         run_uci set dhcp.lan.dhcpv6='relay'
         run_uci set dhcp.lan.ra='relay'
         run_uci set dhcp.lan.ndp='relay'
+        
+        # Point clients to the router's Link-Local address to ensure queries go through Dnsmasq (DoH + Adblock)
+        # We find the fe80:: address of br-lan dynamically
+        _lan_ll_addr=$(ip -6 addr show dev br-lan 2>/dev/null | awk '/inet6 fe80/{print $2}' | cut -d/ -f1 | head -n1)
+        run_uci -q delete dhcp.lan.dns || true
+        if [ -n "$_lan_ll_addr" ]; then
+            log_info "Detected LAN IPv6 Link-Local: $_lan_ll_addr"
+            run_uci add_list dhcp.lan.dns="$_lan_ll_addr"
+        else
+            # Fallback to external if LL not yet assigned (unlikely, but safe)
+            run_uci add_list dhcp.lan.dns="$IPV6_DNS_PRIMARY"
+            run_uci add_list dhcp.lan.dns="$IPV6_DNS_SECONDARY"
+        fi
 
         run_uci -q delete dhcp.${_wan6_if} || true
         run_uci set dhcp.${_wan6_if}='dhcp'

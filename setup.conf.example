@@ -61,6 +61,8 @@ DOH_PRIMARY_PORT="5053"                          # Options: Local port to listen
 DOH_SECONDARY_BOOTSTRAP="9.9.9.9,149.112.112.112" # Options: Comma separated DNS IPs
 DOH_SECONDARY_URL="https://dns.quad9.net/dns-query"    # Options: Any DoH resolver URL
 DOH_SECONDARY_PORT="5054"                        # Options: Local port to listen on
+IPV6_DNS_PRIMARY="2606:4700:4700::1111"          # Options: Any IPv6 DNS address
+IPV6_DNS_SECONDARY="2620:fe::fe"                 # Options: Any IPv6 DNS address
 
 # --- NTP Servers ---
 NTP_SERVERS="0.id.pool.ntp.org 1.id.pool.ntp.org 2.id.pool.ntp.org 3.id.pool.ntp.org" # Options: Space separated NTP servers
