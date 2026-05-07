@@ -538,7 +538,13 @@ ZRAMEOF
 net.ipv4.tcp_congestion_control=cubic
 net.core.default_qdisc=fq_codel
 SYSCTL
-        if [ "$ENABLE_IPV6" = "0" ]; then
+        if [ "$ENABLE_IPV6" = "1" ]; then
+            cat >> /etc/sysctl.d/99-custom.conf << 'SYSCTL'
+# Disable IPv6 Privacy Extensions on the router for stable routing
+net.ipv6.conf.all.use_tempaddr=0
+net.ipv6.conf.default.use_tempaddr=0
+SYSCTL
+        else
             cat >> /etc/sysctl.d/99-custom.conf << 'SYSCTL'
 net.ipv6.conf.all.disable_ipv6=1
 net.ipv6.conf.default.disable_ipv6=1
@@ -739,6 +745,7 @@ enable_services() {
             [ -f /etc/init.d/$svc ] && service $svc enable
         done
         [ "$ENABLE_TAILSCALE" = "1" ] && [ -f /etc/init.d/tailscale ] && service tailscale enable
+
         sysctl -p /etc/sysctl.d/99-custom.conf 2>/dev/null || true
 
         # Write post-reboot init

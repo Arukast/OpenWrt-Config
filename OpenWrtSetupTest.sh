@@ -314,6 +314,41 @@ if [ "${ENABLE_TAILSCALE:-1}" = "1" ]; then
 fi
 
 # =============================================================================
+# 8. IPv6
+# =============================================================================
+section "8. IPv6"
+
+if [ "${ENABLE_IPV6:-1}" = "1" ]; then
+    ula=$(uci -q get network.globals.ula_prefix 2>/dev/null)
+    if [ -z "$ula" ]; then
+        pass "IPv6 ULA prefix is disabled (Prevents LAN routing confusion)"
+    else
+        warn "IPv6 ULA prefix still exists ($ula)" "uci delete network.globals.ula_prefix && uci commit network"
+    fi
+
+    if uci -q get network.wwan6 >/dev/null; then
+        pass "wwan6 interface defined"
+    else
+        warn "wwan6 interface not found" "Run setup script"
+    fi
+
+    wwan6_ip=$(ifstatus wwan6 2>/dev/null | jsonfilter -e '@["ipv6-address"][0].address' 2>/dev/null)
+    if [ -n "$wwan6_ip" ]; then
+        pass "wwan6 IPv6: $wwan6_ip"
+    else
+        warn "wwan6 has NO IPv6 address" "Check upstream WISP IPv6 support"
+    fi
+
+    if ping -6 -c2 -W2 2606:4700:4700::1111 >/dev/null 2>&1; then
+        pass "IPv6 Internet ping OK"
+    else
+        warn "IPv6 Internet ping FAILED" "Check upstream IPv6 connectivity"
+    fi
+else
+    pass "IPv6 is disabled"
+fi
+
+# =============================================================================
 # SUMMARY
 # =============================================================================
 TOTAL=$((PASS + FAIL + WARN))
