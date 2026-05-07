@@ -117,6 +117,7 @@ load_config() {
     : ${ZONENAME:="Asia/Jakarta"}
     : ${LAN_IP:="192.168.11.1"}
     : ${LAN_NETMASK:="255.255.255.0"}
+    : ${CONNECTION_MODE:="WISP"}
     : ${WWAN_IFACE:="phy0-sta0"}
     : ${RADIO_2G:="radio0"}
     : ${RADIO_5G:=""}
@@ -149,6 +150,7 @@ load_config() {
     : ${ENABLE_ADBLOCK_LEAN:=1}
     : ${ENABLE_WANUSB_ZONE:=0}
     : ${ENABLE_IPV6:=1}
+    : ${USE_WAN_AS_LAN:=1}
 
     if [ "$WIFI_KEY" = "CHANGE_ME" ] || [ "$WIFI_KEY" = "CHANGE_ME_SUPER_SECRET_KEY" ]; then
         _abort "WIFI_KEY is not set to a secure value. Please update your config file."
@@ -165,6 +167,7 @@ pre_flight_checks() {
     [ ! -x "/sbin/uci" ] && _abort "UCI not found. Are you running this on OpenWrt?"
 
     # Variable Validation
+    [ "$CONNECTION_MODE" != "WISP" ] && [ "$CONNECTION_MODE" != "WIRED" ] && _abort "CONNECTION_MODE must be WISP or WIRED."
     [ -z "$WWAN_IFACE" ] && _abort "WWAN_IFACE is not set."
     [ -z "$RADIO_2G" ] && _abort "RADIO_2G is not set."
     for var_name in DL_KBPS UL_KBPS SQM_OVERHEAD SQM_MTU TXPWR_2G; do
@@ -220,6 +223,7 @@ pre_flight_checks() {
     elif [ "$AUTO_YES" = "0" ]; then
         printf "\n${BOLD}Configuration Summary:${NC}\n"
         printf "  Hostname  : %s\n" "$HOSTNAME"
+        printf "  Mode      : %s\n" "$CONNECTION_MODE"
         printf "  LAN IP    : %s\n" "$LAN_IP"
         printf "  WiFi 2.4G : %s (Ch %s)\n" "$WIFI_SSID_2G" "$CH_2G"
         printf "  WiFi 5G   : %s (Ch %s)\n" "$WIFI_SSID_5G" "$CH_5G"
@@ -319,35 +323,88 @@ setup_system() {
 
 setup_network() {
     log_step "Configuring network..."
-    run_uci -q delete network.wan  || true
-    run_uci -q delete network.wan6 || true
 
     [ -n "$LAN_PORTS" ] && run_uci set network.@device[0].ports="$LAN_PORTS"
+    
+    _wan_dev=$(jsonfilter -e '@.network.wan.device' < /etc/board.json 2>/dev/null || true)
+    [ -z "$_wan_dev" ] && _wan_dev=$(jsonfilter -e '@.network.wan.ifname' < /etc/board.json 2>/dev/null || true)
+
+    if [ "$CONNECTION_MODE" = "WISP" ] && [ "$USE_WAN_AS_LAN" = "1" ]; then
+        if [ -n "$_wan_dev" ]; then
+            run_uci del_list network.@device[0].ports="$_wan_dev" 2>/dev/null || true
+            run_uci add_list network.@device[0].ports="$_wan_dev"
+        fi
+    else
+        if [ -n "$_wan_dev" ]; then
+            run_uci del_list network.@device[0].ports="$_wan_dev" 2>/dev/null || true
+        fi
+    fi
 
     # LAN Config
     run_uci set network.lan.ipaddr="$LAN_IP"
     run_uci set network.lan.netmask="$LAN_NETMASK"
 
-    # WISP Config
-    run_uci set network.wwan='interface'
-    run_uci set network.wwan.proto='dhcp'
-    run_uci set network.wwan.device="$WWAN_IFACE"
-    run_uci set network.wwan.mtu="$SQM_MTU"
-    run_uci set network.wwan.peerdns='0'
-    run_uci -q delete network.wwan.dns || true
-    run_uci add_list network.wwan.dns='1.1.1.1'
-    run_uci add_list network.wwan.dns='9.9.9.9'
+    if [ "$CONNECTION_MODE" = "WISP" ]; then
+        run_uci -q delete network.wan  || true
+        run_uci -q delete network.wan6 || true
+        
+        # WISP Config
+        run_uci set network.wwan='interface'
+        run_uci set network.wwan.proto='dhcp'
+        run_uci set network.wwan.device="$WWAN_IFACE"
+        run_uci set network.wwan.mtu="$SQM_MTU"
+        run_uci set network.wwan.peerdns='0'
+        run_uci -q delete network.wwan.dns || true
+        run_uci add_list network.wwan.dns='1.1.1.1'
+        run_uci add_list network.wwan.dns='9.9.9.9'
 
-    run_uci set network.globals.packet_steering='2'
-    if [ "$ENABLE_IPV6" = "1" ]; then
-        run_uci set network.wwan6='interface'
-        run_uci set network.wwan6.proto='dhcpv6'
-        run_uci set network.wwan6.device="$WWAN_IFACE"
-        run_uci set network.wwan6.reqaddress='try'
-        run_uci set network.wwan6.reqprefix='auto'
-        run_uci set network.wwan6.peerdns='0'
+        run_uci set network.globals.packet_steering='2'
+        if [ "$ENABLE_IPV6" = "1" ]; then
+            # Remove ULA Prefix to prevent routing confusion on LAN clients in WISP relay mode
+            run_uci -q delete network.globals.ula_prefix || true
+            run_uci set network.wwan6='interface'
+            run_uci set network.wwan6.proto='dhcpv6'
+            run_uci set network.wwan6.device="$WWAN_IFACE"
+            run_uci set network.wwan6.reqaddress='try'
+            run_uci set network.wwan6.reqprefix='auto'
+            run_uci set network.wwan6.peerdns='0'
+        else
+            run_uci set network.lan.ipv6='0'
+        fi
     else
-        run_uci set network.lan.ipv6='0'
+        # WIRED Config
+        run_uci -q delete network.wwan || true
+        run_uci -q delete network.wwan6 || true
+        
+        _wan_dev=$(jsonfilter -e '@.network.wan.device' < /etc/board.json 2>/dev/null || true)
+        [ -z "$_wan_dev" ] && _wan_dev=$(jsonfilter -e '@.network.wan.ifname' < /etc/board.json 2>/dev/null || true)
+        
+        if ! uci -q get network.wan >/dev/null 2>&1; then
+            run_uci set network.wan='interface'
+            run_uci set network.wan.proto='dhcp'
+            [ -n "$_wan_dev" ] && run_uci set network.wan.device="$_wan_dev"
+        fi
+        run_uci set network.wan.mtu="$SQM_MTU"
+        run_uci set network.wan.peerdns='0'
+        run_uci -q delete network.wan.dns || true
+        run_uci add_list network.wan.dns='1.1.1.1'
+        run_uci add_list network.wan.dns='9.9.9.9'
+        
+        run_uci set network.globals.packet_steering='2'
+        if [ "$ENABLE_IPV6" = "1" ]; then
+            run_uci -q delete network.globals.ula_prefix || true
+            if ! uci -q get network.wan6 >/dev/null 2>&1; then
+                run_uci set network.wan6='interface'
+                run_uci set network.wan6.proto='dhcpv6'
+                [ -n "$_wan_dev" ] && run_uci set network.wan6.device="$_wan_dev"
+            fi
+            run_uci set network.wan6.reqaddress='try'
+            run_uci set network.wan6.reqprefix='auto'
+            run_uci set network.wan6.peerdns='0'
+        else
+            run_uci set network.lan.ipv6='0'
+            run_uci -q delete network.wan6 || true
+        fi
     fi
 
     run_uci commit network
@@ -394,12 +451,23 @@ setup_wireless() {
 setup_sqm() {
     log_step "Configuring SQM CAKE..."
     uci -q get sqm.@queue[0] >/dev/null 2>&1 || run_uci add sqm queue
+    
+    if [ "$CONNECTION_MODE" = "WISP" ]; then
+        _sqm_iface="$WWAN_IFACE"
+    else
+        _sqm_iface=$(jsonfilter -e '@.network.wan.device' < /etc/board.json 2>/dev/null || true)
+        [ -z "$_sqm_iface" ] && _sqm_iface=$(jsonfilter -e '@.network.wan.ifname' < /etc/board.json 2>/dev/null || true)
+        [ -z "$_sqm_iface" ] && _sqm_iface=$(uci -q get network.wan.device 2>/dev/null)
+        [ -z "$_sqm_iface" ] && _sqm_iface=$(uci -q get network.wan.ifname 2>/dev/null)
+        [ -z "$_sqm_iface" ] && _sqm_iface="eth0"
+    fi
+
     if [ "$DL_KBPS" = "0" ] && [ "$UL_KBPS" = "0" ]; then
         run_uci set sqm.@queue[0].enabled='0'
         log_info "SQM is disabled (Speed set to 0)."
     else
         run_uci set sqm.@queue[0].enabled='1'
-        run_uci set sqm.@queue[0].interface="$WWAN_IFACE"
+        run_uci set sqm.@queue[0].interface="$_sqm_iface"
         run_uci set sqm.@queue[0].download="$DL_KBPS"
         run_uci set sqm.@queue[0].upload="$UL_KBPS"
         run_uci set sqm.@queue[0].qdisc='cake'
@@ -454,7 +522,11 @@ ZRAMEOF
 
     run_uci add system watchcat
     run_uci set system.@watchcat[-1].mode='restart_iface'
-    run_uci set system.@watchcat[-1].interface='wwan'
+    if [ "$CONNECTION_MODE" = "WISP" ]; then
+        run_uci set system.@watchcat[-1].interface='wwan'
+    else
+        run_uci set system.@watchcat[-1].interface='wan'
+    fi
     run_uci set system.@watchcat[-1].pinghosts='8.8.8.8 1.1.1.1'
     run_uci set system.@watchcat[-1].addressfamily='ipv4'
     run_uci set system.@watchcat[-1].pingperiod='30'
@@ -515,18 +587,30 @@ setup_dns() {
     run_uci add_list dhcp.@dnsmasq[0].address='/mask.icloud.com/'
     run_uci add_list dhcp.@dnsmasq[0].address='/mask-h2.icloud.com/'
 
+    if [ "$CONNECTION_MODE" = "WISP" ]; then
+        _wan6_if="wwan6"
+    else
+        _wan6_if="wan6"
+    fi
+
     if [ "$ENABLE_IPV6" = "1" ]; then
         run_uci set dhcp.lan.dhcpv6='relay'
         run_uci set dhcp.lan.ra='relay'
         run_uci set dhcp.lan.ndp='relay'
 
-        run_uci -q delete dhcp.wwan6 || true
-        run_uci set dhcp.wwan6='dhcp'
-        run_uci set dhcp.wwan6.interface='wwan6'
-        run_uci set dhcp.wwan6.dhcpv6='relay'
-        run_uci set dhcp.wwan6.ra='relay'
-        run_uci set dhcp.wwan6.ndp='relay'
-        run_uci set dhcp.wwan6.master='1'
+        run_uci -q delete dhcp.${_wan6_if} || true
+        run_uci set dhcp.${_wan6_if}='dhcp'
+        run_uci set dhcp.${_wan6_if}.interface="${_wan6_if}"
+        run_uci set dhcp.${_wan6_if}.dhcpv6='relay'
+        run_uci set dhcp.${_wan6_if}.ra='relay'
+        run_uci set dhcp.${_wan6_if}.ndp='relay'
+        run_uci set dhcp.${_wan6_if}.master='1'
+        
+        if [ "$CONNECTION_MODE" = "WISP" ]; then
+            run_uci -q delete dhcp.wan6 || true
+        else
+            run_uci -q delete dhcp.wwan6 || true
+        fi
         run_cmd /etc/init.d/odhcpd enable 2>/dev/null || true
     else
         run_uci set dhcp.lan.dhcpv6='disabled'
@@ -553,14 +637,29 @@ setup_firewall() {
         run_uci -q delete firewall.$z || true
     done
 
-    # Ensure wwan interface is in the default wan zone for NAT/Internet access
+    if [ "$CONNECTION_MODE" = "WISP" ]; then
+        _wan_if="wwan"
+        _wan6_if="wwan6"
+        _other_if="wan"
+        _other6_if="wan6"
+    else
+        _wan_if="wan"
+        _wan6_if="wan6"
+        _other_if="wwan"
+        _other6_if="wwan6"
+    fi
+
+    # Ensure correct interface is in the default wan zone for NAT/Internet access
     _wan_zone=$(uci show firewall 2>/dev/null | grep "name='wan'" | awk -F'.' '{print $2}' | head -1 || true)
     if [ -n "$_wan_zone" ]; then
-        run_uci del_list firewall.${_wan_zone}.network='wwan' 2>/dev/null || true
-        run_uci add_list firewall.${_wan_zone}.network='wwan'
+        run_uci del_list firewall.${_wan_zone}.network="$_other_if" 2>/dev/null || true
+        run_uci del_list firewall.${_wan_zone}.network="$_other6_if" 2>/dev/null || true
+        
+        run_uci del_list firewall.${_wan_zone}.network="$_wan_if" 2>/dev/null || true
+        run_uci add_list firewall.${_wan_zone}.network="$_wan_if"
         if [ "$ENABLE_IPV6" = "1" ]; then
-            run_uci del_list firewall.${_wan_zone}.network='wwan6' 2>/dev/null || true
-            run_uci add_list firewall.${_wan_zone}.network='wwan6'
+            run_uci del_list firewall.${_wan_zone}.network="$_wan6_if" 2>/dev/null || true
+            run_uci add_list firewall.${_wan_zone}.network="$_wan6_if"
         fi
     fi
 

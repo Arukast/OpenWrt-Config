@@ -10,6 +10,9 @@ ZONENAME="Asia/Jakarta"          # Options: Asia/Jakarta, Asia/Makassar, UTC, Am
 LAN_IP="192.168.11.1"            # Options: Any private IP (e.g., 192.168.x.1). Avoids conflict with 192.168.1.1
 LAN_NETMASK="255.255.255.0"      # Options: 255.255.255.0 (/24) is standard
 
+# --- Connection Mode ---
+CONNECTION_MODE="WISP"           # Options: WISP, WIRED. WISP uses Wi-Fi as WAN. WIRED uses physical WAN port.
+
 # --- Wireless WAN Interface (WISP/STA) ---
 WWAN_IFACE="phy0-sta0"           # Options: phy0-sta0, wlan0 (Check via 'iw dev')
 
@@ -67,3 +70,4 @@ ENABLE_TAILSCALE=1               # Options: 1 (enable), 0 (disable)
 ENABLE_ADBLOCK_LEAN=1            # Options: 1 (enable), 0 (disable)
 ENABLE_WANUSB_ZONE=0             # Options: 1 (enable), 0 (disable)
 ENABLE_IPV6=0                    # Options: 1 (Enable IPv6), 0 (disable IPv6)
+USE_WAN_AS_LAN=1                 # Options: 1 (enable), 0 (disable). Repurposes WAN port as LAN in WISP mode.
