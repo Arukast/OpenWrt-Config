@@ -339,7 +339,16 @@ setup_network() {
     run_uci add_list network.wwan.dns='9.9.9.9'
 
     run_uci set network.globals.packet_steering='2'
-    [ "$ENABLE_IPV6" = "0" ] && run_uci set network.lan.ipv6='0'
+    if [ "$ENABLE_IPV6" = "1" ]; then
+        run_uci set network.wwan6='interface'
+        run_uci set network.wwan6.proto='dhcpv6'
+        run_uci set network.wwan6.device="$WWAN_IFACE"
+        run_uci set network.wwan6.reqaddress='try'
+        run_uci set network.wwan6.reqprefix='auto'
+        run_uci set network.wwan6.peerdns='0'
+    else
+        run_uci set network.lan.ipv6='0'
+    fi
 
     run_uci commit network
     log_ok "Network config committed."
@@ -501,7 +510,20 @@ setup_dns() {
     run_uci add_list dhcp.@dnsmasq[0].address='/mask.icloud.com/'
     run_uci add_list dhcp.@dnsmasq[0].address='/mask-h2.icloud.com/'
 
-    if [ "$ENABLE_IPV6" = "0" ]; then
+    if [ "$ENABLE_IPV6" = "1" ]; then
+        run_uci set dhcp.lan.dhcpv6='relay'
+        run_uci set dhcp.lan.ra='relay'
+        run_uci set dhcp.lan.ndp='relay'
+
+        run_uci -q delete dhcp.wwan6 || true
+        run_uci set dhcp.wwan6='dhcp'
+        run_uci set dhcp.wwan6.interface='wwan6'
+        run_uci set dhcp.wwan6.dhcpv6='relay'
+        run_uci set dhcp.wwan6.ra='relay'
+        run_uci set dhcp.wwan6.ndp='relay'
+        run_uci set dhcp.wwan6.master='1'
+        run_cmd /etc/init.d/odhcpd enable 2>/dev/null || true
+    else
         run_uci set dhcp.lan.dhcpv6='disabled'
         run_uci set dhcp.lan.ra='disabled'
         run_uci set dhcp.lan.ndp='disabled'
@@ -531,6 +553,10 @@ setup_firewall() {
     if [ -n "$_wan_zone" ]; then
         run_uci del_list firewall.${_wan_zone}.network='wwan' 2>/dev/null || true
         run_uci add_list firewall.${_wan_zone}.network='wwan'
+        if [ "$ENABLE_IPV6" = "1" ]; then
+            run_uci del_list firewall.${_wan_zone}.network='wwan6' 2>/dev/null || true
+            run_uci add_list firewall.${_wan_zone}.network='wwan6'
+        fi
     fi
 
     if [ "$ENABLE_TAILSCALE" = "1" ]; then
