@@ -58,20 +58,50 @@ sh /tmp/SQM_Speedtest.sh
 
 The `TelegramMonitoring` directory contains scripts to track router health, auth attempts, and DHCP events.
 
-### Configuration
-1. Open `TelegramMonitoring/telegram.conf.example` and rename it to `telegram.conf`.
-2. Add your Google Apps Script Webhook URL and select your language (`en` or `id`).
+### Configuration & Google Apps Script Setup
+
+To get real-time Telegram alerts and keep an automated log in Google Sheets, you need to set up a Telegram Bot and a Google Apps Script Web App. Follow these steps:
+
+#### **Step A: Get your Telegram Bot Token & Chat ID**
+1. Message `@BotFather` on Telegram, send `/newbot`, and follow the prompts to get your **HTTP API Token** (`token`).
+2. Message `@userinfobot` or `@GetMyIDBot` on Telegram to retrieve your personal **Telegram Chat ID** (`chatId`).
+
+#### **Step B: Setup your Google Sheet & Apps Script**
+1. Create a new, empty Google Spreadsheet (e.g., name it `Router Monitoring Log`).
+2. In the Spreadsheet menu, go to **Extensions** -> **Apps Script**.
+3. Clear the default `Code.gs` content and paste the code from [spreadsheet_google_apps_script.js](file:///home/arukast/openwrt/TelegramMonitoring/spreadsheet_google_apps_script.js).
+4. Fill in your Telegram Token and Chat ID inside the variables at lines 19-20:
+   ```javascript
+   var token = "YOUR_TELEGRAM_BOT_TOKEN";
+   var chatId = "YOUR_TELEGRAM_CHAT_ID";
+   ```
+5. Click the **Save** (floppy disk) icon.
+
+#### **Step C: Deploy as a Web App**
+1. In the top-right corner of the Apps Script page, click **Deploy** -> **New deployment**.
+2. Click the gear icon next to "Select type" and choose **Web app**.
+3. Set the following options:
+   - **Description**: `Router Alerts and Logging Webhook`
+   - **Execute as**: `Me (your-email@gmail.com)`
+   - **Who has access**: **`Anyone`** *(This is critical! Your router needs access to post logs without authentication).*
+4. Click **Deploy**. Authorize Google permissions if prompted (click *Advanced* -> *Go to Project (unsafe)*).
+5. Copy the generated **Web App URL** (e.g., `https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec`).
+
+#### **Step D: Configure and Install on your Router**
+1. Copy `TelegramMonitoring/telegram.conf.example` and rename it to `telegram.conf`.
+2. Open `TelegramMonitoring/telegram.conf` and paste your copied Web App URL:
    ```bash
-   GAS_URL="https://script.google.com/macros/s/YOUR_ID/exec"
-   LANG="en"
+   GAS_URL="https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec"
+   LANG="en" # Use "en" for English or "id" for Indonesian
    ```
 3. Transfer the directory to your router:
    ```bash
    scp -O -r TelegramMonitoring root@192.168.11.1:/tmp/
    ```
+   *(Note: If you have already changed your router IP to a different temporary IP like `192.168.12.1`, make sure to use that IP instead!)*
 4. Run the installer:
    ```bash
-   ssh root@192.168.11.1
+   ssh root@192.168.11.1  # (Or your router's current temporary IP)
    sh /tmp/TelegramMonitoring/install.sh
    ```
 
