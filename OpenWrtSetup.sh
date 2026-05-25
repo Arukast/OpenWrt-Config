@@ -1,6 +1,6 @@
 #!/bin/sh
 # =============================================================================
-#  OpenWrt Universal Setup Script — WISP Mode
+#  OpenWrt Universal Setup Script
 #  Compatible: OpenWrt 23.05+ (apk package manager)
 # =============================================================================
 
@@ -57,7 +57,6 @@ _abort()    { log_error "$*"; exit 1; }
 
 # Initialize log file
 > "$LOG_FILE"
-log_info "Starting OpenWrt Setup Script (WISP Mode)"
 
 show_subnet_hint() {
     printf "\n${YELLOW}Troubleshooting: Fix by changing the LAN subnet:${NC}\n"
@@ -791,6 +790,7 @@ RCEOF
 
 main() {
     load_config
+    log_info "Starting OpenWrt Setup Script ($CONNECTION_MODE Mode)"
     pre_flight_checks
     backup_uci
 

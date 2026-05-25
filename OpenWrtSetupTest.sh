@@ -79,8 +79,26 @@ section() { [ "$JSON_OUT" = "0" ] && printf "\n${BOLD}━━━ %s ━━━${NC
 # =============================================================================
 # Initialization
 # =============================================================================
-# Prefer config values if loaded, else fallback to UCI
-WWAN_IFACE=${WWAN_IFACE:-$(uci -q get network.wwan.device || echo "phy0-sta0")}
+# Prefer config values if loaded, else fallback to auto-detection/UCI
+CONNECTION_MODE=${CONNECTION_MODE:-""}
+if [ -z "$CONNECTION_MODE" ]; then
+    if uci -q get network.wwan >/dev/null; then
+        CONNECTION_MODE="WISP"
+    elif uci -q get network.wan >/dev/null; then
+        CONNECTION_MODE="WIRED"
+    else
+        CONNECTION_MODE="WISP" # fallback
+    fi
+fi
+
+if [ "$CONNECTION_MODE" = "WIRED" ]; then
+    WAN_NAME="wan"
+    WAN_IFACE_DEV=${WAN_IFACE:-$(uci -q get network.wan.device || uci -q get network.wan.ifname || echo "eth0")}
+else
+    WAN_NAME="wwan"
+    WAN_IFACE_DEV=${WWAN_IFACE:-$(uci -q get network.wwan.device || echo "phy0-sta0")}
+fi
+
 DL_KBPS=${DL_KBPS:-$(uci -q get sqm.@queue[0].download || echo "0")}
 UL_KBPS=${UL_KBPS:-$(uci -q get sqm.@queue[0].upload || echo "0")}
 DOH_PORT1=${DOH_PRIMARY_PORT:-$(uci -q get https-dns-proxy.@https-dns-proxy[0].listen_port || echo "5053")}
@@ -176,24 +194,28 @@ fi
 # =============================================================================
 section "2. Network Connectivity"
 
-# wwan interface
-if uci -q get network.wwan >/dev/null; then
-    pass "wwan interface defined"
+# WAN interface
+if uci -q get network.$WAN_NAME >/dev/null; then
+    pass "$WAN_NAME interface defined"
 else
-    fail "wwan interface not found" "Run setup script"
+    fail "$WAN_NAME interface not found" "Run setup script"
 fi
 
-wwan_ip=$(ifstatus wwan 2>/dev/null | jsonfilter -e '@["ipv4-address"][0].address' 2>/dev/null)
-if [ -n "$wwan_ip" ]; then
-    pass "wwan IP: $wwan_ip"
+wan_ip=$(ifstatus $WAN_NAME 2>/dev/null | jsonfilter -e '@["ipv4-address"][0].address' 2>/dev/null)
+if [ -n "$wan_ip" ]; then
+    pass "$WAN_NAME IP: $wan_ip"
 else
-    fail "wwan has NO IP address" "wifi reload && ifup wwan"
+    if [ "$CONNECTION_MODE" = "WIRED" ]; then
+        fail "$WAN_NAME has NO IP address" "Check Ethernet cable and upstream DHCP server"
+    else
+        fail "$WAN_NAME has NO IP address" "wifi reload && ifup wwan"
+    fi
 fi
 
-if ip route show default | grep -qc "$WWAN_IFACE"; then
-    pass "Default route via $WWAN_IFACE"
+if ip route show default | grep -qc "$WAN_IFACE_DEV"; then
+    pass "Default route via $WAN_IFACE_DEV"
 else
-    warn "Default route is NOT via $WWAN_IFACE" "ip route"
+    warn "Default route is NOT via $WAN_IFACE_DEV" "ip route"
 fi
 
 if ping -c2 -W2 8.8.8.8 >/dev/null 2>&1; then
@@ -203,9 +225,9 @@ else
 fi
 
 lan_subnet=$(ip route | awk '/dev br-lan/{print $1}' | head -1)
-wwan_subnet=$(ip route | awk "/dev $WWAN_IFACE/{print \$1}" | head -1)
-if [ -n "$lan_subnet" ] && [ -n "$wwan_subnet" ] && [ "$lan_subnet" = "$wwan_subnet" ]; then
-    fail "SUBNET CONFLICT: LAN == WWAN ($lan_subnet)" "Change LAN IP to a different subnet"
+wan_subnet=$(ip route | awk "/dev $WAN_IFACE_DEV/{print \$1}" | head -1)
+if [ -n "$lan_subnet" ] && [ -n "$wan_subnet" ] && [ "$lan_subnet" = "$wan_subnet" ]; then
+    fail "SUBNET CONFLICT: LAN == WAN ($lan_subnet)" "Change LAN IP to a different subnet"
 else
     pass "No subnet conflict"
 fi
@@ -222,11 +244,15 @@ else
     fail "No AP interfaces active" "wifi reload"
 fi
 
-sta_up=$(iw dev 2>/dev/null | grep -c "type managed")
-if [ "$sta_up" -ge 1 ]; then
-    pass "$sta_up STA (upstream) interface(s) active"
+if [ "$CONNECTION_MODE" = "WISP" ]; then
+    sta_up=$(iw dev 2>/dev/null | grep -c "type managed")
+    if [ "$sta_up" -ge 1 ]; then
+        pass "$sta_up STA (upstream) interface(s) active"
+    else
+        warn "No STA interface found" "Check WISP config"
+    fi
 else
-    warn "No STA interface found" "Check WISP config"
+    pass "Wired mode: Upstream STA interface check skipped"
 fi
 
 # =============================================================================
@@ -240,9 +266,9 @@ else
     fail "SQM not enabled in UCI" "uci set sqm.@queue[0].enabled='1' && uci commit sqm"
 fi
 
-tc_out=$(tc qdisc show dev "$WWAN_IFACE" 2>/dev/null)
+tc_out=$(tc qdisc show dev "$WAN_IFACE_DEV" 2>/dev/null)
 if echo "$tc_out" | grep -qi "cake"; then
-    pass "CAKE qdisc active on $WWAN_IFACE"
+    pass "CAKE qdisc active on $WAN_IFACE_DEV"
 else
     fail "CAKE qdisc NOT active" "/etc/init.d/sqm restart"
 fi
@@ -326,17 +352,23 @@ if [ "${ENABLE_IPV6:-1}" = "1" ]; then
         warn "IPv6 ULA prefix still exists ($ula)" "uci delete network.globals.ula_prefix && uci commit network"
     fi
 
-    if uci -q get network.wwan6 >/dev/null; then
-        pass "wwan6 interface defined"
+    if [ "$CONNECTION_MODE" = "WIRED" ]; then
+        WAN6_NAME="wan6"
     else
-        warn "wwan6 interface not found" "Run setup script"
+        WAN6_NAME="wwan6"
     fi
 
-    wwan6_ip=$(ifstatus wwan6 2>/dev/null | jsonfilter -e '@["ipv6-address"][0].address' 2>/dev/null)
-    if [ -n "$wwan6_ip" ]; then
-        pass "wwan6 IPv6: $wwan6_ip"
+    if uci -q get network.$WAN6_NAME >/dev/null; then
+        pass "$WAN6_NAME interface defined"
     else
-        warn "wwan6 has NO IPv6 address" "Check upstream WISP IPv6 support"
+        warn "$WAN6_NAME interface not found" "Run setup script"
+    fi
+
+    wan6_ip=$(ifstatus $WAN6_NAME 2>/dev/null | jsonfilter -e '@["ipv6-address"][0].address' 2>/dev/null)
+    if [ -n "$wan6_ip" ]; then
+        pass "$WAN6_NAME IPv6: $wan6_ip"
+    else
+        warn "$WAN6_NAME has NO IPv6 address" "Check upstream IPv6 support"
     fi
 
     if ping -6 -c2 -W2 2606:4700:4700::1111 >/dev/null 2>&1; then
