@@ -151,13 +151,15 @@ check_wan_ip() {
 }
 
 check_sqm() {
-    WWAN_IFACE=$(uci -q get network.wwan.device || echo "phy0-sta0")
     if uci -q get sqm.@queue[0].enabled 2>/dev/null | grep -q "1"; then
-        if ! tc qdisc show dev "$WWAN_IFACE" 2>/dev/null | grep -qi "cake"; then
-            MSG=$(printf "$MSG_SQM_DOWN" "$WWAN_IFACE")
-            send_alert "sqm" "QOS" "$MSG"
-        else
-            reset_alert "sqm"
+        SQM_IFACE=$(uci -q get sqm.@queue[0].interface)
+        if [ -n "$SQM_IFACE" ]; then
+            if ! tc qdisc show dev "$SQM_IFACE" 2>/dev/null | grep -qi "cake"; then
+                MSG=$(printf "$MSG_SQM_DOWN" "$SQM_IFACE")
+                send_alert "sqm" "QOS" "$MSG"
+            else
+                reset_alert "sqm"
+            fi
         fi
     fi
 }
