@@ -61,6 +61,13 @@ check_tailscale() {
     if command -v tailscale >/dev/null 2>&1; then
         TS_IP=$(tailscale ip -4 2>/dev/null)
         if [ -z "$TS_IP" ] || tailscale status 2>/dev/null | grep -qE "Logged out|NeedsLogin"; then
+            UPTIME_SEC=$(awk '{print int($1)}' /proc/uptime)
+            # Skip alert if the router recently booted (within 3 minutes / 180 seconds)
+            # to give the tailscale daemon time to initialize and handshake.
+            if [ "$UPTIME_SEC" -lt 180 ]; then
+                return
+            fi
+
             if [ ! -f "${LOCK_DIR}/tailscale_unconfigured.lock" ]; then
                 /usr/bin/telegram_notify.sh "VPN" "Tailscale is installed but not configured (Not logged in)."
                 touch "${LOCK_DIR}/tailscale_unconfigured.lock"
