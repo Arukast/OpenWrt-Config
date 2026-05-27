@@ -289,6 +289,15 @@ exec /usr/bin/wget.orig -4 "$@"
 
     run_cmd apk add ca-bundle ca-certificates curl sqm-scripts luci-app-sqm kmod-sched-cake https-dns-proxy luci-app-https-dns-proxy watchcat nano iperf3 htop
 
+    # Replace basic WPAD with full WPAD-OpenSSL to enable 802.11r/k/v roaming features
+    log_info "Replacing basic WPAD with full WPAD-OpenSSL..."
+    for wpad_pkg in wpad-basic-mbedtls wpad-basic-openssl wpad-mini wpad-basic; do
+        if apk info "$wpad_pkg" >/dev/null 2>&1; then
+            run_cmd apk del "$wpad_pkg"
+        fi
+    done
+    run_cmd apk add wpad-openssl usteer luci-app-usteer
+
     if [ "$ENABLE_TAILSCALE" = "1" ]; then
         run_cmd apk add tailscale && log_ok "Tailscale installed." || log_warn "Tailscale install failed."
     fi
@@ -448,6 +457,11 @@ setup_wireless() {
                 run_uci set wireless.${iface}.ssid="$ssid_var"
                 run_uci set wireless.${iface}.encryption='sae-mixed'
                 run_uci set wireless.${iface}.key="$WIFI_KEY"
+                
+                # Enable 802.11r Fast Transition for seamless roaming between 2.4GHz & 5GHz
+                run_uci set wireless.${iface}.ieee80211r='1'
+                run_uci set wireless.${iface}.ft_over_ds='1'
+                run_uci set wireless.${iface}.ft_psk_generate_local='1'
             fi
         done
     done
