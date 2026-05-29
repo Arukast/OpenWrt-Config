@@ -381,6 +381,103 @@ else
 fi
 
 # =============================================================================
+# 9. WIREGUARD VPN & DDNS
+# =============================================================================
+section "9. WireGuard VPN & DDNS"
+
+WG_CLIENTS=${WG_CLIENTS:-"phone laptop"}
+
+if [ "${ENABLE_WIREGUARD:-1}" = "1" ]; then
+    # Check packages
+    missing_wg=""
+    for p in wireguard-tools luci-proto-wireguard qrencode; do
+        if ! apk info "$p" >/dev/null 2>&1 && ! opkg status "$p" >/dev/null 2>&1; then
+            missing_wg="$missing_wg $p"
+        fi
+    done
+    if [ -n "$missing_wg" ]; then
+        fail "Missing WireGuard packages:$missing_wg" "apk add$missing_wg"
+    else
+        pass "Required WireGuard packages installed"
+    fi
+
+    # Check key files
+    if [ -f /etc/wireguard/server.key ] && [ -f /etc/wireguard/server.pub ]; then
+        pass "WireGuard server keys exist"
+    else
+        fail "WireGuard server keys missing" "Run OpenWrtSetup.sh"
+    fi
+
+    # Check interface
+    if uci -q get network.wg0 >/dev/null; then
+        pass "network.wg0 interface defined in UCI"
+    else
+        fail "network.wg0 interface NOT defined" "Run OpenWrtSetup.sh"
+    fi
+
+    # Check firewall zone
+    _wg_fwd=0
+    for fwd in $(uci show firewall 2>/dev/null | grep "=forwarding$" | awk -F'=' '{print $1}'); do
+        src=$(uci -q get ${fwd}.src || true)
+        dest=$(uci -q get ${fwd}.dest || true)
+        if [ "$src" = "wg" ] || [ "$dest" = "wg" ]; then
+            _wg_fwd=$((_wg_fwd + 1))
+        fi
+    done
+    if [ "$_wg_fwd" -ge 2 ]; then
+        pass "Firewall zone 'wg' with forwarding rules exists"
+    else
+        fail "Firewall rules for zone 'wg' are missing or incomplete" "Run OpenWrtSetup.sh"
+    fi
+
+    # Check open UDP port
+    _port_open=0
+    WG_PORT=${WG_PORT:-"51820"}
+    for r in $(uci show firewall 2>/dev/null | grep "=rule$" | awk -F'=' '{print $1}'); do
+        name=$(uci -q get ${r}.name || true)
+        target=$(uci -q get ${r}.target || true)
+        dest_port=$(uci -q get ${r}.dest_port || true)
+        if [ "$name" = "Allow-WireGuard-IPv6" ] && [ "$target" = "ACCEPT" ] && [ "$dest_port" = "$WG_PORT" ]; then
+            _port_open=1
+            break
+        fi
+    done
+    if [ "$_port_open" -ge 1 ]; then
+        pass "WAN incoming WireGuard IPv6 UDP port rule exists"
+    else
+        fail "WAN incoming WireGuard IPv6 port rule NOT configured" "Check setup firewall"
+    fi
+
+    # Check client profiles
+    _client_files_exist=1
+    for c in $WG_CLIENTS; do
+        if [ ! -f "/etc/wireguard/clients/${c}_split.conf" ] || [ ! -f "/etc/wireguard/clients/${c}_full.conf" ]; then
+            _client_files_exist=0
+            break
+        fi
+    done
+    if [ "$_client_files_exist" -eq 1 ]; then
+        pass "Configured client peer profiles generated successfully ($WG_CLIENTS)"
+    else
+        warn "Some client peer profiles are missing in /etc/wireguard/clients/" "Check setup execution logs"
+    fi
+else
+    pass "WireGuard is disabled"
+fi
+
+if [ "${ENABLE_WG_DDNS:-0}" = "1" ]; then
+    if uci -q get ddns.duckdns >/dev/null; then
+        if [ "$(uci -q get ddns.duckdns.enabled)" = "1" ]; then
+            pass "DuckDNS DDNS updater service is configured and enabled"
+        else
+            warn "DuckDNS DDNS is configured but disabled in UCI" "uci set ddns.duckdns.enabled='1' && uci commit ddns"
+        fi
+    else
+        fail "DuckDNS DDNS service config is missing" "Run OpenWrtSetup.sh"
+    fi
+fi
+
+# =============================================================================
 # SUMMARY
 # =============================================================================
 TOTAL=$((PASS + FAIL + WARN))

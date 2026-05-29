@@ -73,3 +73,15 @@ ENABLE_ADBLOCK_LEAN=1            # Options: 1 (enable), 0 (disable)
 ENABLE_WANUSB_ZONE=0             # Options: 1 (enable), 0 (disable)
 ENABLE_IPV6=0                    # Options: 1 (Enable IPv6), 0 (disable IPv6)
 USE_WAN_AS_LAN=1                 # Options: 1 (enable), 0 (disable). Repurposes WAN port as LAN in WISP mode.
+
+# --- WireGuard over IPv6 Config ---
+ENABLE_WIREGUARD=0                # Options: 1 (enable), 0 (disable)
+WG_PORT="51820"                   # Options: Standard WireGuard UDP Port (usually 51820)
+WG_IPV4_SUBNET="10.8.0.1/24"      # Internal tunnel IPv4 address/subnet
+WG_IPV6_SUBNET="fd11:2233:4455::1/64" # Internal tunnel IPv6 address/subnet
+WG_CLIENTS="phone laptop"         # List of client peers to pre-configure (space-separated)
+
+# --- DuckDNS DDNS (Recommended for Dynamic IPv6) ---
+ENABLE_WG_DDNS=0                 # Options: 1 (enable), 0 (disable). Keeps domain updated with IPv6 address.
+WG_DDNS_DOMAIN="yourdomain.duckdns.org" # Your custom DuckDNS domain name
+WG_DDNS_TOKEN="your-duckdns-token"      # Your DuckDNS API token
