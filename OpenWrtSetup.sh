@@ -296,7 +296,7 @@ exec /usr/bin/wget.orig -4 "$@"
             run_cmd apk del "$wpad_pkg"
         fi
     done
-    run_cmd apk add wpad-openssl usteer luci-app-usteer
+    run_cmd apk add wpad-openssl usteer luci-app-usteer kmod-tcp-bbr
 
     if [ "$ENABLE_TAILSCALE" = "1" ]; then
         run_cmd apk add tailscale && log_ok "Tailscale installed." || log_warn "Tailscale install failed."
@@ -556,7 +556,7 @@ ZRAMEOF
 
     if [ "$DRY_RUN" = "0" ]; then
         cat > /etc/sysctl.d/99-custom.conf << 'SYSCTL'
-net.ipv4.tcp_congestion_control=cubic
+net.ipv4.tcp_congestion_control=bbr
 net.core.default_qdisc=fq_codel
 SYSCTL
         if [ "$ENABLE_IPV6" = "1" ]; then
