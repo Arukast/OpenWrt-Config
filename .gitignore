@@ -2,6 +2,7 @@
 .env
 telegram.conf
 setup.conf
+setup*.conf
 docs/
 
 # Editor / OS

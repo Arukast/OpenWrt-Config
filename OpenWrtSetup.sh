@@ -106,6 +106,10 @@ load_config() {
             */*) . "$CONFIG_FILE" ;;
               *) . "./$CONFIG_FILE" ;;
         esac
+        # Save config file permanently to the router's /etc so that OpenWrtSetupTest.sh can always find it
+        if [ "${DRY_RUN:-0}" = "0" ] && [ "$CONFIG_FILE" != "/etc/openwrt-setup.conf" ]; then
+            cp -f "$CONFIG_FILE" /etc/openwrt-setup.conf 2>/dev/null || true
+        fi
     else
         log_info "No configuration file found or specified."
     fi
@@ -138,10 +142,10 @@ load_config() {
     : ${SQM_MTU:="1480"}
     : ${ZRAM_MB:="128"}
     : ${ZRAM_ALGO:="lzo-rle"}
-    : ${DOH_PRIMARY_BOOTSTRAP:="1.1.1.1,1.0.0.1"}
+    : ${DOH_PRIMARY_BOOTSTRAP:="1.1.1.1,1.0.0.1,2606:4700:4700::1111,2606:4700:4700::1001"}
     : ${DOH_PRIMARY_URL:="https://cloudflare-dns.com/dns-query"}
     : ${DOH_PRIMARY_PORT:="5053"}
-    : ${DOH_SECONDARY_BOOTSTRAP:="9.9.9.9,149.112.112.112"}
+    : ${DOH_SECONDARY_BOOTSTRAP:="9.9.9.9,149.112.112.112,2620:fe::fe,2620:fe::9"}
     : ${DOH_SECONDARY_URL:="https://dns.quad9.net/dns-query"}
     : ${DOH_SECONDARY_PORT:="5054"}
     : ${IPV6_DNS_PRIMARY:="2606:4700:4700::1111"}
@@ -156,7 +160,7 @@ load_config() {
     : ${WG_PORT:="51820"}
     : ${WG_IPV4_SUBNET:="10.8.0.1/24"}
     : ${WG_IPV6_SUBNET:="fd11:2233:4455::1/64"}
-    : ${WG_CLIENTS:="phone laptop"}
+    : ${WG_CLIENTS:=""}
     : ${ENABLE_WG_DDNS:=0}
     : ${WG_DDNS_DOMAIN:="yourdomain.duckdns.org"}
     : ${WG_DDNS_TOKEN:="your-duckdns-token"}
@@ -397,6 +401,12 @@ setup_network() {
             run_uci -q delete network.wwan6.dns || true
             run_uci add_list network.wwan6.dns="$IPV6_DNS_PRIMARY"
             run_uci add_list network.wwan6.dns="$IPV6_DNS_SECONDARY"
+
+            # Auto-bind wireless WISP client STA interfaces in wireless config to both networks 'wwan' and 'wwan6'
+            for w_iface in $(uci show wireless 2>/dev/null | grep -E "\.mode='sta'|\.mode='client'" | awk -F'.' '{print $2}' || true); do
+                run_uci set wireless.${w_iface}.network='wwan wwan6'
+            done
+            run_uci -q commit wireless || true
         else
             run_uci set network.lan.ipv6='0'
         fi
@@ -481,6 +491,7 @@ setup_wireless() {
                 run_uci set wireless.${iface}.mobility_domain='1234'
                 
                 # Enable 802.11k (RRM) & 802.11v (BTM) to support Usteer band steering
+                run_uci set wireless.${iface}.rrm='1'
                 run_uci set wireless.${iface}.rrm_beacon_report='1'
                 run_uci set wireless.${iface}.rrm_neighbor_report='1'
                 run_uci set wireless.${iface}.bss_transition='1'
@@ -640,10 +651,12 @@ setup_dns() {
     run_uci set https-dns-proxy.@https-dns-proxy[-1].listen_port="$DOH_SECONDARY_PORT"
     run_uci set https-dns-proxy.@https-dns-proxy[-1].use_http1='0'
     run_uci set https-dns-proxy.@https-dns-proxy[-1].dscp_codepoint='46'
+    run_uci set https-dns-proxy.config.procd_trigger_wan6="$ENABLE_IPV6"
     run_uci commit https-dns-proxy
 
     run_uci set dhcp.@dnsmasq[0].cachesize='5000'
     run_uci set dhcp.@dnsmasq[0].noresolv='1'
+    run_uci set dhcp.@dnsmasq[0].localservice='0'
     run_uci -q delete dhcp.@dnsmasq[0].server || true
     run_uci add_list dhcp.@dnsmasq[0].server="127.0.0.1#${DOH_PRIMARY_PORT}"
     run_uci add_list dhcp.@dnsmasq[0].server="127.0.0.1#${DOH_SECONDARY_PORT}"
@@ -820,6 +833,7 @@ setup_wireguard() {
         run_uci set network.wg0.private_key="DRY_RUN_PRIVATE_KEY"
     fi
     run_uci set network.wg0.listen_port="$WG_PORT"
+    run_uci set network.wg0.mtu='1280'
     run_uci add_list network.wg0.addresses="$WG_IPV4_SUBNET"
     run_uci add_list network.wg0.addresses="$WG_IPV6_SUBNET"
 
@@ -850,7 +864,7 @@ setup_wireguard() {
     run_uci set firewall.@zone[-1].output='ACCEPT'
     run_uci set firewall.@zone[-1].masq='1'
     run_uci set firewall.@zone[-1].mtu_fix='1'
-    run_uci add_list firewall.@zone[-1].device='wg0'
+    run_uci add_list firewall.@zone[-1].network='wg0'
 
     # 2. Add Forwardings
     run_uci add firewall forwarding
@@ -883,16 +897,13 @@ setup_wireguard() {
         run_uci set ddns.duckdns.enabled='1'
         run_uci set ddns.duckdns.lookup_host="$WG_DDNS_DOMAIN"
         run_uci set ddns.duckdns.domain="$WG_DDNS_DOMAIN"
-        run_uci set ddns.duckdns.username='none'
+        _subdomain="${WG_DDNS_DOMAIN%%.*}"
+        run_uci set ddns.duckdns.username="$_subdomain"
         run_uci set ddns.duckdns.password="$WG_DDNS_TOKEN"
-        run_uci set ddns.duckdns.update_url='http://www.duckdns.org/update?domains=[USERNAME]&token=[PASSWORD]&ip=[IP]&ipv6=[IP]'
+        run_uci set ddns.duckdns.update_url='https://www.duckdns.org/update?domains=[USERNAME]&token=[PASSWORD]&ipv6=[IP]'
         run_uci set ddns.duckdns.use_ipv6='1'
-        run_uci set ddns.duckdns.ip_source='interface'
-        if [ "$CONNECTION_MODE" = "WISP" ]; then
-            run_uci set ddns.duckdns.ip_interface='wwan'
-        else
-            run_uci set ddns.duckdns.ip_interface='wan'
-        fi
+        run_uci set ddns.duckdns.ip_source='web'
+        run_uci set ddns.duckdns.ip_url='http://v6.ident.me'
         run_uci set ddns.duckdns.check_interval='10'
         run_uci set ddns.duckdns.check_unit='minutes'
     else
@@ -955,7 +966,7 @@ setup_wireguard() {
 [Interface]
 PrivateKey = $_client_priv
 Address = ${_c_ip4}/32, ${_c_ip6}/128
-DNS = 192.168.11.1
+DNS = 10.8.0.1, fd11:2233:4455::1
 
 [Peer]
 PublicKey = $_srv_pub
@@ -968,12 +979,25 @@ CONF
 [Interface]
 PrivateKey = $_client_priv
 Address = ${_c_ip4}/32, ${_c_ip6}/128
-DNS = 192.168.11.1
+DNS = 10.8.0.1, fd11:2233:4455::1
 
 [Peer]
 PublicKey = $_srv_pub
 Endpoint = ${_endpoint}:${WG_PORT}
 AllowedIPs = 0.0.0.0/0, ::/0
+PersistentKeepalive = 25
+CONF
+
+            cat > "/etc/wireguard/clients/${client}_dns.conf" << CONF
+[Interface]
+PrivateKey = $_client_priv
+Address = ${_c_ip4}/32, ${_c_ip6}/128
+DNS = 10.8.0.1, fd11:2233:4455::1
+
+[Peer]
+PublicKey = $_srv_pub
+Endpoint = ${_endpoint}:${WG_PORT}
+AllowedIPs = 10.8.0.1/32, fd11:2233:4455::1/128
 PersistentKeepalive = 25
 CONF
         fi
@@ -1037,7 +1061,7 @@ wifi reload
 /etc/init.d/dnsmasq         restart
 /etc/init.d/firewall        restart
 [ -f /etc/init.d/adblock-lean ] && /etc/init.d/adblock-lean start
-[ -f /etc/init.d/tailscale    ] && /etc/init.d/tailscale    restart
+[ -f /etc/init.d/tailscale    ] && /etc/init.d/tailscale    restart && sleep 3 && [ -x /usr/sbin/tailscale ] && /usr/sbin/tailscale up --accept-dns=false 2>/dev/null
 rm -f /etc/rc.local
 exit 0
 RCEOF

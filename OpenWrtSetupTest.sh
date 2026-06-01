@@ -104,6 +104,32 @@ UL_KBPS=${UL_KBPS:-$(uci -q get sqm.@queue[0].upload || echo "0")}
 DOH_PORT1=${DOH_PRIMARY_PORT:-$(uci -q get https-dns-proxy.@https-dns-proxy[0].listen_port || echo "5053")}
 DOH_PORT2=${DOH_SECONDARY_PORT:-$(uci -q get https-dns-proxy.@https-dns-proxy[1].listen_port || echo "5054")}
 
+# Intelligent auto-detection of active features if no setup.conf was loaded
+if [ -z "$ENABLE_WIREGUARD" ]; then
+    if uci -q get network.wg0 >/dev/null || [ -f /etc/wireguard/server.key ]; then
+        ENABLE_WIREGUARD=1
+    else
+        ENABLE_WIREGUARD=0
+    fi
+fi
+
+if [ -z "$ENABLE_TAILSCALE" ]; then
+    if command -v tailscale >/dev/null 2>&1 || uci -q get firewall.tailscale >/dev/null; then
+        ENABLE_TAILSCALE=1
+    else
+        ENABLE_TAILSCALE=0
+    fi
+fi
+
+if [ -z "$ENABLE_WG_DDNS" ]; then
+    if uci -q get ddns.duckdns >/dev/null; then
+        ENABLE_WG_DDNS=1
+    else
+        ENABLE_WG_DDNS=0
+    fi
+fi
+
+
 if [ "$JSON_OUT" = "0" ]; then
     printf "\n${BOLD}============================================================${NC}\n"
     printf "${BOLD}  OpenWrt Setup Verification${NC}\n"
@@ -328,11 +354,18 @@ if [ "${ENABLE_TAILSCALE:-1}" = "1" ]; then
     if command -v tailscale >/dev/null 2>&1; then
         ts_status=$(tailscale status 2>&1 | head -1)
         if echo "$ts_status" | grep -qi "logged out\|not logged"; then
-            warn "Tailscale not logged in" "tailscale up --accept-routes"
+            warn "Tailscale not logged in" "tailscale up --accept-dns=false"
         elif echo "$ts_status" | grep -qi "stopped\|error"; then
             fail "Tailscale status error: $ts_status" "/etc/init.d/tailscale restart"
         else
             pass "Tailscale active: $ts_status"
+            
+            # Check if Tailscale MagicDNS is hijacking system/resolver DNS
+            if grep -q "100.100.100.100" /etc/resolv.conf 2>/dev/null || grep -q "100.100.100.100" /tmp/resolv.conf.d/resolv.conf.auto 2>/dev/null; then
+                fail "Tailscale MagicDNS is hijacking router DNS (accept-dns is true)" "tailscale up --accept-dns=false --reset && /etc/init.d/dnsmasq restart"
+            else
+                pass "Tailscale DNS hijacking is disabled (accept-dns is false)"
+            fi
         fi
     else
         warn "Tailscale not installed" "apk add tailscale"
