@@ -195,11 +195,11 @@ if [ "${ZRAM_MB:-0}" -gt 0 ] || lsmod | grep -q zram; then
     fi
 fi
 
-# Weekly reboot every Sunday at 03:00
-if grep -Fq "0 3 * * 0 reboot" /etc/crontabs/root 2>/dev/null; then
-    pass "Weekly reboot cron job is configured"
+# Monthly reboot every 1st of the month at 03:00 (with bootloop safety trick)
+if grep -Fq "0 3 1 * * sleep 70 && touch /etc/banner && reboot" /etc/crontabs/root 2>/dev/null; then
+    pass "Monthly reboot cron job is configured"
 else
-    warn "Weekly reboot cron job is missing" "Check crontab for '0 3 * * 0 reboot'"
+    warn "Monthly reboot cron job is missing" "Check crontab for '0 3 1 * * sleep 70 && touch /etc/banner && reboot'"
 fi
 
 # Adblock-lean Check
