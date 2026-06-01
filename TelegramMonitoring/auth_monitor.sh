@@ -13,6 +13,14 @@ LANG_FILE="${LANG_DIR}/${LANG:-en}.sh"
 
 [ -f "$LANG_FILE" ] && . "$LANG_FILE" || . "${LANG_DIR}/en.sh"
 
+safe_format() {
+    local template="$1"
+    shift
+    local escaped_template
+    escaped_template=$(echo "$template" | sed 's/%/%%/g; s/%%s/%s/g')
+    printf "$escaped_template" "$@"
+}
+
 TRACK_FILE="/tmp/auth_track_ips"
 MAX_FAILURES=3
 TIME_WINDOW=300 # 5 minutes
@@ -36,7 +44,7 @@ logread -f | while read -r line; do
         FAIL_COUNT=$(grep -c " $IP$" "$TRACK_FILE")
         
         if [ "$FAIL_COUNT" -ge "$MAX_FAILURES" ]; then
-            MSG=$(printf "$MSG_BRUTE_FORCE_LUCI" "${USER:-unknown}" "${IP:-unknown}")
+            MSG=$(safe_format "$MSG_BRUTE_FORCE_LUCI" "${USER:-unknown}" "${IP:-unknown}")
             /usr/bin/telegram_notify.sh "SECURITY" "$MSG"
             # Prevent spamming for this IP in the current window by removing its older entries
             grep -v " $IP$" "$TRACK_FILE" > "${TRACK_FILE}.tmp"
@@ -49,7 +57,7 @@ logread -f | while read -r line; do
     if echo "$line" | grep -q "luci: accepted login"; then
         USER=$(echo "$line" | sed -n 's/.*accepted login on .* for \(.*\) from .*/\1/p')
         IP=$(echo "$line" | sed -n 's/.*from \([0-9\.]*\).*/\1/p')
-        MSG=$(printf "$MSG_LOGIN_LUCI" "${USER:-unknown}" "${IP:-unknown}")
+        MSG=$(safe_format "$MSG_LOGIN_LUCI" "${USER:-unknown}" "${IP:-unknown}")
         /usr/bin/telegram_notify.sh "AUTH" "$MSG"
         continue
     fi
@@ -57,13 +65,14 @@ logread -f | while read -r line; do
     # 3. SSH Brute Force
     if echo "$line" | grep -q "dropbear.*Bad password"; then
         USER=$(echo "$line" | sed -n "s/.*Bad password for '\([^']*\)'.*/\1/p")
-        IP=$(echo "$line" | sed -n 's/.*from <\([0-9\.]*\):.*/\1/p')
+        RAW_IP=$(echo "$line" | sed -n 's/.*from \([^ ]*\).*/\1/p')
+        IP=$(echo "$RAW_IP" | sed 's/:\([0-9]*\)$//' | tr -d '[]<>')
         
         echo "$NOW $IP" >> "$TRACK_FILE"
         FAIL_COUNT=$(grep -c " $IP$" "$TRACK_FILE")
         
         if [ "$FAIL_COUNT" -ge "$MAX_FAILURES" ]; then
-            MSG=$(printf "$MSG_BRUTE_FORCE_SSH" "${USER:-unknown}" "${IP:-unknown}")
+            MSG=$(safe_format "$MSG_BRUTE_FORCE_SSH" "${USER:-unknown}" "${IP:-unknown}")
             /usr/bin/telegram_notify.sh "SECURITY" "$MSG"
             grep -v " $IP$" "$TRACK_FILE" > "${TRACK_FILE}.tmp"
             mv "${TRACK_FILE}.tmp" "$TRACK_FILE"
@@ -74,8 +83,9 @@ logread -f | while read -r line; do
     # 4. SSH Login Berhasil
     if echo "$line" | grep -q "dropbear.*Password auth succeeded"; then
         USER=$(echo "$line" | sed -n "s/.*Password auth succeeded for '\([^']*\)'.*/\1/p")
-        IP=$(echo "$line" | sed -n 's/.*from <\([0-9\.]*\):.*/\1/p')
-        MSG=$(printf "$MSG_LOGIN_SSH" "${USER:-unknown}" "${IP:-unknown}")
+        RAW_IP=$(echo "$line" | sed -n 's/.*from \([^ ]*\).*/\1/p')
+        IP=$(echo "$RAW_IP" | sed 's/:\([0-9]*\)$//' | tr -d '[]<>')
+        MSG=$(safe_format "$MSG_LOGIN_SSH" "${USER:-unknown}" "${IP:-unknown}")
         /usr/bin/telegram_notify.sh "AUTH" "$MSG"
         continue
     fi

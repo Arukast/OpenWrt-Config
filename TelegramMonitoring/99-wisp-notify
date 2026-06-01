@@ -13,35 +13,62 @@ LANG_FILE="${LANG_DIR}/${LANG:-en}.sh"
 
 [ -f "$LANG_FILE" ] && . "$LANG_FILE" || . "${LANG_DIR}/en.sh"
 
-IFACE="wwan"
-DOWN_TIME_FILE="/tmp/wisp_down_time"
+safe_format() {
+    local template="$1"
+    shift
+    local escaped_template
+    escaped_template=$(echo "$template" | sed 's/%/%%/g; s/%%s/%s/g')
+    printf "$escaped_template" "$@"
+}
 
-if [ "$INTERFACE" = "$IFACE" ]; then
+
+if [ "$INTERFACE" = "wwan" ] || [ "$INTERFACE" = "wan" ]; then
+    DOWN_TIME_FILE="/tmp/${INTERFACE}_down_time"
+
     if [ "$ACTION" = "ifdown" ]; then
         date +%s > "$DOWN_TIME_FILE"
     
     elif [ "$ACTION" = "ifup" ]; then
-        IP=$(ifstatus "$IFACE" | jsonfilter -e '@["ipv4-address"][0].address' 2>/dev/null)
+        IP=$(ifstatus "$INTERFACE" | jsonfilter -e '@["ipv4-address"][0].address' 2>/dev/null)
         [ -z "$IP" ] && IP="unknown"
         
-        WWAN_DEV=$(uci -q get network.wwan.device || echo "phy0-sta0")
-        SIGNAL=$(iw dev "$WWAN_DEV" link 2>/dev/null | grep signal | awk '{print $2}')
-        [ -z "$SIGNAL" ] && SIGNAL="unknown"
+        if [ "$INTERFACE" = "wwan" ]; then
+            # WISP Mode
+            WWAN_DEV=$(uci -q get network.wwan.device || echo "phy0-sta0")
+            SIGNAL=$(iw dev "$WWAN_DEV" link 2>/dev/null | grep signal | awk '{print $2}')
+            [ -z "$SIGNAL" ] && SIGNAL="unknown"
 
-        if [ -f "$DOWN_TIME_FILE" ]; then
-            DOWN_TIME=$(cat "$DOWN_TIME_FILE")
-            UP_TIME=$(date +%s)
-            DURATION=$((UP_TIME - DOWN_TIME))
-            MINUTES=$((DURATION / 60))
-            SECONDS=$((DURATION % 60))
-            
-            rm -f "$DOWN_TIME_FILE"
-            
-            MSG=$(printf "$MSG_WISP_RECOVER" "$MINUTES" "$SECONDS" "$IP" "$SIGNAL")
-            /usr/bin/telegram_notify.sh "NETWORK" "$MSG"
+            if [ -f "$DOWN_TIME_FILE" ]; then
+                DOWN_TIME=$(cat "$DOWN_TIME_FILE")
+                UP_TIME=$(date +%s)
+                DURATION=$((UP_TIME - DOWN_TIME))
+                MINUTES=$((DURATION / 60))
+                SECONDS=$((DURATION % 60))
+                
+                rm -f "$DOWN_TIME_FILE"
+                
+                MSG=$(safe_format "$MSG_WISP_RECOVER" "$MINUTES" "$SECONDS" "$IP" "$SIGNAL")
+            else
+                MSG=$(safe_format "$MSG_WISP_CONNECTED" "$IP" "$SIGNAL")
+            fi
         else
-            MSG=$(printf "$MSG_WISP_CONNECTED" "$IP" "$SIGNAL")
-            /usr/bin/telegram_notify.sh "NETWORK" "$MSG"
+            # Wired Mode
+            if [ -f "$DOWN_TIME_FILE" ]; then
+                DOWN_TIME=$(cat "$DOWN_TIME_FILE")
+                UP_TIME=$(date +%s)
+                DURATION=$((UP_TIME - DOWN_TIME))
+                MINUTES=$((DURATION / 60))
+                SECONDS=$((DURATION % 60))
+                
+                rm -f "$DOWN_TIME_FILE"
+                
+                MSG=$(safe_format "$MSG_WIRED_RECOVER" "$MINUTES" "$SECONDS" "$IP")
+            else
+                MSG=$(safe_format "$MSG_WIRED_CONNECTED" "$IP")
+            fi
         fi
+
+        /usr/bin/telegram_notify.sh "NETWORK" "$MSG"
     fi
 fi
+

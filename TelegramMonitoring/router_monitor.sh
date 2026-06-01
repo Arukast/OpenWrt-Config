@@ -19,6 +19,14 @@ LANG_FILE="${LANG_DIR}/${LANG:-en}.sh"
 
 [ -f "$LANG_FILE" ] && . "$LANG_FILE" || . "${LANG_DIR}/en.sh"
 
+safe_format() {
+    local template="$1"
+    shift
+    local escaped_template
+    escaped_template=$(echo "$template" | sed 's/%/%%/g; s/%%s/%s/g')
+    printf "$escaped_template" "$@"
+}
+
 # === HELPER FUNCTIONS ===
 send_alert() {
     LOCK_NAME="$1"
@@ -50,7 +58,7 @@ reset_alert() {
 check_ram() {
     FREE_MEM=$(free | awk '/^Mem:/{print int($4/1024)}')
     if [ "$FREE_MEM" -lt 30 ]; then
-        MSG=$(printf "$MSG_RAM_WARN" "$FREE_MEM")
+        MSG=$(safe_format "$MSG_RAM_WARN" "$FREE_MEM")
         send_alert "ram" "RESOURCE" "$MSG"
     else
         reset_alert "ram"
@@ -107,7 +115,7 @@ check_latency() {
         # High latency detected or packet loss, confirm with 5-second test (5 packets)
         AVG_LATENCY=$(ping -c 5 -q 8.8.8.8 2>/dev/null | awk -F'/' 'END{print int($4)}')
         if [ -n "$AVG_LATENCY" ] && [ "$AVG_LATENCY" -gt 150 ]; then
-            MSG=$(printf "$MSG_LATENCY_HIGH" "$AVG_LATENCY")
+            MSG=$(safe_format "$MSG_LATENCY_HIGH" "$AVG_LATENCY")
             # Override default 15 min cooldown -> Use 5 mins (300s) for latency alerts
             send_alert "latensi" "UPLINK" "$MSG" 300
         else
@@ -121,7 +129,7 @@ check_latency() {
 check_storage() {
     OVERLAY_USE=$(df /overlay 2>/dev/null | awk 'NR==2 {print $5}' | tr -d '%')
     if [ -n "$OVERLAY_USE" ] && [ "$OVERLAY_USE" -gt 90 ]; then
-        MSG=$(printf "$MSG_STORAGE_WARN" "$OVERLAY_USE")
+        MSG=$(safe_format "$MSG_STORAGE_WARN" "$OVERLAY_USE")
         send_alert "storage" "RESOURCE" "$MSG"
     else
         reset_alert "storage"
@@ -134,7 +142,7 @@ check_cpu_load() {
         LOAD_AVG=$(cat /proc/loadavg | awk '{print $1}')
         LOAD_INT=$(echo "$LOAD_AVG" | awk -F. '{print $1}')
         if [ "$LOAD_INT" -ge 2 ]; then
-            MSG=$(printf "$MSG_CPU_LOAD" "$LOAD_AVG")
+            MSG=$(safe_format "$MSG_CPU_LOAD" "$LOAD_AVG")
             send_alert "cpu_load" "RESOURCE" "$MSG"
         else
             reset_alert "cpu_load"
@@ -149,7 +157,7 @@ check_wan_ip() {
         if [ -f "$IP_FILE" ]; then
             OLD_IP=$(cat "$IP_FILE")
             if [ "$OLD_IP" != "$CURRENT_IP" ]; then
-                MSG=$(printf "$MSG_WAN_IP_CHANGE" "$OLD_IP" "$CURRENT_IP")
+                MSG=$(safe_format "$MSG_WAN_IP_CHANGE" "$OLD_IP" "$CURRENT_IP")
                 /usr/bin/telegram_notify.sh "NETWORK" "$MSG"
             fi
         fi
@@ -162,7 +170,7 @@ check_sqm() {
         SQM_IFACE=$(uci -q get sqm.@queue[0].interface)
         if [ -n "$SQM_IFACE" ]; then
             if ! tc qdisc show dev "$SQM_IFACE" 2>/dev/null | grep -qi "cake"; then
-                MSG=$(printf "$MSG_SQM_DOWN" "$SQM_IFACE")
+                MSG=$(safe_format "$MSG_SQM_DOWN" "$SQM_IFACE")
                 send_alert "sqm" "QOS" "$MSG"
             else
                 reset_alert "sqm"
@@ -185,6 +193,49 @@ check_wifi_clients() {
     echo "$CLIENT_COUNT" > "$CLIENT_FILE"
 }
 
+check_boot_and_heartbeat() {
+    HEARTBEAT_FILE="/etc/router_last_seen"
+    BOOT_LOCK="/tmp/router_boot_notified"
+    NOW=$(date +%s)
+
+    # 1. Boot recovery check
+    if [ ! -f "$BOOT_LOCK" ]; then
+        # Ensure time is synchronized (epoch greater than 1700000000)
+        # OpenWrt might boot up with 1970 or a low build date until NTP syncs.
+        if [ "$NOW" -gt 1700000000 ]; then
+            touch "$BOOT_LOCK"
+            if [ -f "$HEARTBEAT_FILE" ]; then
+                LAST_SEEN=$(cat "$HEARTBEAT_FILE")
+                # Validate that LAST_SEEN is a valid number
+                if expr "$LAST_SEEN" : '^[0-9]\+$' >/dev/null; then
+                    DIFF=$((NOW - LAST_SEEN))
+                    # Only notify if downtime is significant (e.g., > 120 seconds)
+                    if [ "$DIFF" -gt 120 ]; then
+                        HOURS=$(( DIFF / 3600 ))
+                        MINUTES=$(( (DIFF % 3600) / 60 ))
+                        SECONDS=$(( DIFF % 60 ))
+
+                        DOWNTIME=""
+                        [ "$HOURS" -gt 0 ] && DOWNTIME="${HOURS}h "
+                        [ "$MINUTES" -gt 0 ] || [ "$HOURS" -gt 0 ] && DOWNTIME="${DOWNTIME}${MINUTES}m "
+                        DOWNTIME="${DOWNTIME}${SECONDS}s"
+
+                        LAST_SEEN_STR=$(date -d "@$LAST_SEEN" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || date -r "$LAST_SEEN" "+%Y-%m-%d %H:%M:%S" 2>/dev/null || echo "Unknown")
+                        
+                        if [ -n "$MSG_ROUTER_ONLINE" ]; then
+                            MSG=$(safe_format "$MSG_ROUTER_ONLINE" "$DOWNTIME" "$LAST_SEEN_STR")
+                            /usr/bin/telegram_notify.sh "SYSTEM" "$MSG"
+                        fi
+                    fi
+                fi
+            fi
+        fi
+    fi
+
+    # 2. Always update the heartbeat timestamp
+    echo "$NOW" > "$HEARTBEAT_FILE"
+}
+
 main() {
     check_ram
     check_tailscale
@@ -195,6 +246,8 @@ main() {
     check_wan_ip
     check_sqm
     check_wifi_clients
+    check_boot_and_heartbeat
 }
 
 main
+

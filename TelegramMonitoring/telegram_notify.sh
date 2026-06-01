@@ -44,9 +44,10 @@ RATE_LIMIT_WINDOW=60
 NOW=$(date +%s)
 
 if [ -f "$RATE_LIMIT_FILE" ]; then
-    # Clean up old entries
-    awk -v now="$NOW" -v window="$RATE_LIMIT_WINDOW" 'now - $1 <= window' "$RATE_LIMIT_FILE" > "${RATE_LIMIT_FILE}.tmp"
-    mv "${RATE_LIMIT_FILE}.tmp" "$RATE_LIMIT_FILE"
+    # Clean up old entries using a unique temp file to prevent concurrent race conditions
+    awk -v now="$NOW" -v window="$RATE_LIMIT_WINDOW" 'now - $1 <= window' "$RATE_LIMIT_FILE" > "${RATE_LIMIT_FILE}.tmp.$$"
+    mv "${RATE_LIMIT_FILE}.tmp.$$" "$RATE_LIMIT_FILE"
+
     
     # Check limit
     COUNT=$(wc -l < "$RATE_LIMIT_FILE")

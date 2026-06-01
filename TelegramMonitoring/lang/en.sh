@@ -10,6 +10,8 @@ MSG_CPU_LOAD="High CPU Load! %0ALoad Average: %s"
 MSG_WAN_IP_CHANGE="WAN IP Changed! %0AOld IP: %s %0ANew IP: %s"
 MSG_SQM_DOWN="SQM Down! %0ASQM (CAKE) is not active on %s."
 MSG_CLIENTS_COUNT="Active WiFi Clients: %s"
+MSG_ROUTER_ONLINE="Router is ONLINE %0AWas offline for: %s %0ALast seen: %s"
+
 
 MSG_BRUTE_FORCE_LUCI="Brute Force Warning (LuCI) %0AUser: %s %0AIP: %s %0AStatus: Incorrect Web-UI password."
 MSG_LOGIN_LUCI="Successful LuCI Login %0AUser: %s %0AFrom IP: %s"
@@ -18,6 +20,9 @@ MSG_LOGIN_SSH="Successful SSH Login %0AUser: %s %0AFrom IP: %s"
 
 MSG_WISP_RECOVER="WISP (wwan) Recovered %0AInternet was disconnected for %s minutes and %s seconds. %0AIP: %s %0ASignal: %s dBm"
 MSG_WISP_CONNECTED="WISP (wwan) Connected %0AIP: %s %0ASignal: %s dBm"
+MSG_WIRED_RECOVER="Wired WAN (wan) Recovered %0AInternet was disconnected for %s minutes and %s seconds. %0AIP: %s"
+MSG_WIRED_CONNECTED="Wired WAN (wan) Connected %0AIP: %s"
+
 
 MSG_CLIENT_ADD="New Client Connected* %0AIP: %s %0AMAC: %s %0AHost: %s"
 MSG_CLIENT_DEL="Client Disconnected* %0AIP: %s %0AMAC: %s %0AHost: %s"

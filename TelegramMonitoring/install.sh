@@ -79,9 +79,11 @@ else
     fi
 fi
 
-# Start auth_monitor if not running
-if ! ps | grep -v grep | grep -q "auth_monitor.sh"; then
-    /usr/bin/auth_monitor.sh &
-fi
+# Restart auth_monitor to apply updates
+echo "Restarting auth_monitor.sh..."
+killall auth_monitor.sh 2>/dev/null || true
+sleep 1
+/usr/bin/auth_monitor.sh &
+
 
 echo "Installation complete!"
