@@ -48,9 +48,11 @@ fi
 if [ -f "$SRC_DIR/telegram.conf" ]; then
     echo "Overwriting /etc/telegram.conf with local copy..."
     cp "$SRC_DIR/telegram.conf" /etc/telegram.conf
+    chmod 600 /etc/telegram.conf 2>/dev/null || true
 elif [ ! -f /etc/telegram.conf ] || grep -q "YOUR_SCRIPT_ID_HERE" /etc/telegram.conf; then
     echo "Installing default /etc/telegram.conf..."
     cp "$SRC_DIR/telegram.conf.example" /etc/telegram.conf
+    chmod 600 /etc/telegram.conf 2>/dev/null || true
 else
     echo "Preserving existing /etc/telegram.conf"
 fi

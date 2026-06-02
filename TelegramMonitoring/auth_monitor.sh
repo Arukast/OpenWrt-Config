@@ -21,7 +21,12 @@ safe_format() {
     printf "$escaped_template" "$@"
 }
 
-TRACK_FILE="/tmp/auth_track_ips"
+RUN_DIR="/var/run/auth_monitor"
+if [ ! -d "$RUN_DIR" ]; then
+    mkdir -p -m 700 "$RUN_DIR" 2>/dev/null || mkdir -p "$RUN_DIR"
+    chmod 700 "$RUN_DIR" 2>/dev/null || true
+fi
+TRACK_FILE="$RUN_DIR/auth_track_ips"
 MAX_FAILURES=3
 TIME_WINDOW=300 # 5 minutes
 
@@ -32,6 +37,10 @@ logread -f | while read -r line; do
         awk -v now="$NOW" -v window="$TIME_WINDOW" 'now - $1 <= window' "$TRACK_FILE" > "${TRACK_FILE}.tmp"
         mv "${TRACK_FILE}.tmp" "$TRACK_FILE"
     else
+        if [ ! -d "$RUN_DIR" ]; then
+            mkdir -p -m 700 "$RUN_DIR" 2>/dev/null || mkdir -p "$RUN_DIR"
+            chmod 700 "$RUN_DIR" 2>/dev/null || true
+        fi
         touch "$TRACK_FILE"
     fi
 

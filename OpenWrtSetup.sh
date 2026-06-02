@@ -109,6 +109,7 @@ load_config() {
         # Save config file permanently to the router's /etc so that OpenWrtSetupTest.sh can always find it
         if [ "${DRY_RUN:-0}" = "0" ] && [ "$CONFIG_FILE" != "/etc/openwrt-setup.conf" ]; then
             cp -f "$CONFIG_FILE" /etc/openwrt-setup.conf 2>/dev/null || true
+            chmod 600 /etc/openwrt-setup.conf 2>/dev/null || true
         fi
     else
         log_info "No configuration file found or specified."
@@ -164,6 +165,7 @@ load_config() {
     : ${ENABLE_WG_DDNS:=0}
     : ${WG_DDNS_DOMAIN:="yourdomain.duckdns.org"}
     : ${WG_DDNS_TOKEN:="your-duckdns-token"}
+    : ${WG_ALLOW_ADMIN:=1}
 
     if [ "$WIFI_KEY" = "CHANGE_ME" ] || [ "$WIFI_KEY" = "CHANGE_ME_SUPER_SECRET_KEY" ]; then
         _abort "WIFI_KEY is not set to a secure value. Please update your config file."
@@ -810,7 +812,8 @@ setup_wireguard() {
         log_info "[DRY-RUN] Create keys directory and generate server private/public keys"
         _srv_pub="DRY_RUN_SERVER_PUBLIC_KEY"
     else
-        run_cmd mkdir -p /etc/wireguard/clients
+        run_cmd mkdir -p -m 700 /etc/wireguard/clients
+        run_cmd chmod 700 /etc/wireguard/clients
         if [ ! -f /etc/wireguard/server.key ]; then
             log_info "Generating WireGuard server keys..."
             (umask 077 && wg genkey > /etc/wireguard/server.key)
@@ -852,14 +855,16 @@ setup_wireguard() {
         fi
     done
 
-    # Remove existing WAN port opening
-    _rule=$(uci show firewall 2>/dev/null | grep "name='Allow-WireGuard-IPv6'" | awk -F'.' '{print $2}' || true)
-    [ -n "$_rule" ] && run_uci delete firewall.${_rule}
+    # Remove existing WAN port opening and custom DNS/Admin rules
+    for r_name in Allow-WireGuard-IPv6 Allow-WireGuard-DNS Allow-WireGuard-Admin; do
+        _rule=$(uci show firewall 2>/dev/null | grep "name='${r_name}'" | awk -F'.' '{print $2}' || true)
+        [ -n "$_rule" ] && run_uci delete firewall.${_rule}
+    done
 
     # 1. Add Firewall Zone
     run_uci add firewall zone
     run_uci set firewall.@zone[-1].name='wg'
-    run_uci set firewall.@zone[-1].input='ACCEPT'
+    run_uci set firewall.@zone[-1].input='REJECT'
     run_uci set firewall.@zone[-1].forward='ACCEPT'
     run_uci set firewall.@zone[-1].output='ACCEPT'
     run_uci set firewall.@zone[-1].masq='1'
@@ -887,6 +892,24 @@ setup_wireguard() {
     run_uci set firewall.@rule[-1].proto='udp'
     run_uci set firewall.@rule[-1].dest_port="$WG_PORT"
     run_uci set firewall.@rule[-1].target='ACCEPT'
+
+    # 4. Allow DNS queries from the VPN clients to the router local service
+    run_uci add firewall rule
+    run_uci set firewall.@rule[-1].name='Allow-WireGuard-DNS'
+    run_uci set firewall.@rule[-1].src='wg'
+    run_uci set firewall.@rule[-1].dest_port='53'
+    run_uci set firewall.@rule[-1].proto='udp tcp'
+    run_uci set firewall.@rule[-1].target='ACCEPT'
+
+    # 5. Conditionally permit SSH and LuCI administrative access to the router
+    if [ "$WG_ALLOW_ADMIN" = "1" ]; then
+        run_uci add firewall rule
+        run_uci set firewall.@rule[-1].name='Allow-WireGuard-Admin'
+        run_uci set firewall.@rule[-1].src='wg'
+        run_uci set firewall.@rule[-1].dest_port='22 80 443'
+        run_uci set firewall.@rule[-1].proto='tcp'
+        run_uci set firewall.@rule[-1].target='ACCEPT'
+    fi
 
     # DuckDNS Configuration
     if [ "$ENABLE_WG_DDNS" = "1" ]; then
@@ -962,7 +985,9 @@ setup_wireguard() {
 
         # Generate config files
         if [ "$DRY_RUN" = "0" ]; then
-            cat > "/etc/wireguard/clients/${client}_split.conf" << CONF
+            (
+                umask 077
+                cat > "/etc/wireguard/clients/${client}_split.conf" << CONF
 [Interface]
 PrivateKey = $_client_priv
 Address = ${_c_ip4}/32, ${_c_ip6}/128
@@ -975,7 +1000,7 @@ AllowedIPs = 10.8.0.0/24, fd11:2233:4455::/64, 192.168.11.0/24
 PersistentKeepalive = 25
 CONF
 
-            cat > "/etc/wireguard/clients/${client}_full.conf" << CONF
+                cat > "/etc/wireguard/clients/${client}_full.conf" << CONF
 [Interface]
 PrivateKey = $_client_priv
 Address = ${_c_ip4}/32, ${_c_ip6}/128
@@ -988,7 +1013,7 @@ AllowedIPs = 0.0.0.0/0, ::/0
 PersistentKeepalive = 25
 CONF
 
-            cat > "/etc/wireguard/clients/${client}_dns.conf" << CONF
+                cat > "/etc/wireguard/clients/${client}_dns.conf" << CONF
 [Interface]
 PrivateKey = $_client_priv
 Address = ${_c_ip4}/32, ${_c_ip6}/128
@@ -1000,6 +1025,7 @@ Endpoint = ${_endpoint}:${WG_PORT}
 AllowedIPs = 10.8.0.1/32, fd11:2233:4455::1/128
 PersistentKeepalive = 25
 CONF
+            )
         fi
 
         _client_idx=$((_client_idx + 1))

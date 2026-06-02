@@ -38,7 +38,12 @@ JSON_PAYLOAD=$(awk -v k="$KATEGORI" -v p="$PESAN" 'BEGIN {
 }')
 
 # Rate limiting: Max 10 messages per minute
-RATE_LIMIT_FILE="/tmp/telegram_rate_limit"
+RUN_DIR="/var/run/telegram_notify"
+if [ ! -d "$RUN_DIR" ]; then
+    mkdir -p -m 700 "$RUN_DIR" 2>/dev/null || mkdir -p "$RUN_DIR"
+    chmod 700 "$RUN_DIR" 2>/dev/null || true
+fi
+RATE_LIMIT_FILE="$RUN_DIR/telegram_rate_limit"
 RATE_LIMIT_MAX=10
 RATE_LIMIT_WINDOW=60
 NOW=$(date +%s)
@@ -48,13 +53,16 @@ if [ -f "$RATE_LIMIT_FILE" ]; then
     awk -v now="$NOW" -v window="$RATE_LIMIT_WINDOW" 'now - $1 <= window' "$RATE_LIMIT_FILE" > "${RATE_LIMIT_FILE}.tmp.$$"
     mv "${RATE_LIMIT_FILE}.tmp.$$" "$RATE_LIMIT_FILE"
 
-    
     # Check limit
     COUNT=$(wc -l < "$RATE_LIMIT_FILE")
     if [ "$COUNT" -ge "$RATE_LIMIT_MAX" ]; then
         echo "ERROR: Rate limit exceeded ($COUNT msgs in ${RATE_LIMIT_WINDOW}s). Dropping message." >&2
         exit 429
     fi
+fi
+if [ ! -d "$RUN_DIR" ]; then
+    mkdir -p -m 700 "$RUN_DIR" 2>/dev/null || mkdir -p "$RUN_DIR"
+    chmod 700 "$RUN_DIR" 2>/dev/null || true
 fi
 echo "$NOW" >> "$RATE_LIMIT_FILE"
 
