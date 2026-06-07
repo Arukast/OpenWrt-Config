@@ -301,7 +301,7 @@ exec /usr/bin/wget.orig -4 "$@"
         log_info "Continuing anyway..."
     }
 
-    run_cmd apk add ca-bundle ca-certificates curl sqm-scripts luci-app-sqm kmod-sched-cake https-dns-proxy luci-app-https-dns-proxy watchcat nano iperf3 htop
+    run_cmd apk add ca-bundle ca-certificates curl sqm-scripts luci-app-sqm kmod-sched-cake https-dns-proxy luci-app-https-dns-proxy watchcat nano iperf3 htop vnstat2 vnstati2 luci-app-vnstat2 luci-app-nlbwmon
 
     # Replace basic WPAD with full WPAD-OpenSSL to enable 802.11r/k/v roaming features
     log_info "Replacing basic WPAD with full WPAD-OpenSSL..."
@@ -324,7 +324,7 @@ exec /usr/bin/wget.orig -4 "$@"
         run_cmd apk add ddns-scripts ddns-scripts-services && log_ok "DDNS packages installed." || log_warn "DDNS packages install failed."
     fi
 
-    BLOAT_PKGS="luci-app-statistics rrdtool1 librrd1 libgd libjpeg-turbo libpng libwebp netdata mwan3 luci-app-mwan3 ttyd luci-app-ttyd vnstat2 vnstat2ri adblock luci-app-adblock"
+    BLOAT_PKGS="luci-app-statistics rrdtool1 librrd1 libgd libjpeg-turbo libpng libwebp netdata mwan3 luci-app-mwan3 ttyd luci-app-ttyd adblock luci-app-adblock"
     for pkg in $BLOAT_PKGS; do
         if apk info "$pkg" >/dev/null 2>&1; then
             run_cmd apk del "$pkg"

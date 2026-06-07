@@ -171,7 +171,7 @@ else
 fi
 
 # Packages
-pkgs="sqm-scripts kmod-sched-cake https-dns-proxy watchcat curl"
+pkgs="sqm-scripts kmod-sched-cake https-dns-proxy watchcat curl vnstat2 vnstati2 luci-app-vnstat2 luci-app-nlbwmon"
 missing=""
 for p in $pkgs; do
     if ! apk info "$p" >/dev/null 2>&1 && ! opkg status "$p" >/dev/null 2>&1; then
