@@ -30,13 +30,9 @@ cp "$SRC_DIR/lang/id.sh" /etc/telegram_lang/
 
 # Copy hotplug scripts
 mkdir -p /etc/hotplug.d/iface/
-mkdir -p /etc/hotplug.d/dhcp/
 
 cp "$SRC_DIR/99-wisp-notify" /etc/hotplug.d/iface/
-cp "$SRC_DIR/dhcp_notify.sh" /etc/hotplug.d/dhcp/99-dhcp-notify
-
 chmod +x /etc/hotplug.d/iface/99-wisp-notify
-chmod +x /etc/hotplug.d/dhcp/99-dhcp-notify
 
 # Copy SSH notify script
 if [ -f "$SRC_DIR/99-ssh-notify.sh" ]; then

@@ -50,7 +50,18 @@ send_alert() {
 
 reset_alert() {
     LOCK_NAME="$1"
-    rm -f "${LOCK_DIR}/${LOCK_NAME}.lock"
+    KATEGORI="$2"
+    TEMPLATE="$3"
+    shift 3
+    LOCK_FILE="${LOCK_DIR}/${LOCK_NAME}.lock"
+
+    if [ -f "$LOCK_FILE" ]; then
+        rm -f "$LOCK_FILE"
+        if [ -n "$TEMPLATE" ]; then
+            MSG=$(safe_format "$TEMPLATE" "$@")
+            /usr/bin/telegram_notify.sh "$KATEGORI" "$MSG"
+        fi
+    fi
 }
 
 # === CHECKS ===
@@ -86,7 +97,7 @@ check_tailscale() {
         if ! ping -c 1 -W 2 100.100.100.100 > /dev/null 2>&1; then
             send_alert "tailscale" "VPN" "$MSG_TAILSCALE_DOWN"
         else
-            reset_alert "tailscale"
+            reset_alert "tailscale" "VPN" "$MSG_TAILSCALE_RECOVER"
         fi
     fi
 }
@@ -96,14 +107,14 @@ check_wifi() {
     if [ "$WIFI_5G" = "false" ]; then
         send_alert "wifi5g" "WLAN" "$MSG_WIFI_5G_DOWN"
     else
-        reset_alert "wifi5g"
+        reset_alert "wifi5g" "WLAN" "$MSG_WIFI_5G_RECOVER"
     fi
 
     WIFI_24G=$(ubus call network.wireless status | jsonfilter -e '@.radio0.up' 2>/dev/null)
     if [ "$WIFI_24G" = "false" ]; then
         send_alert "wifi24g" "WLAN" "$MSG_WIFI_24G_DOWN"
     else
-        reset_alert "wifi24g"
+        reset_alert "wifi24g" "WLAN" "$MSG_WIFI_24G_RECOVER"
     fi
 }
 
@@ -173,7 +184,7 @@ check_sqm() {
                 MSG=$(safe_format "$MSG_SQM_DOWN" "$SQM_IFACE")
                 send_alert "sqm" "QOS" "$MSG"
             else
-                reset_alert "sqm"
+                reset_alert "sqm" "QOS" "$MSG_SQM_RECOVER" "$SQM_IFACE"
             fi
         fi
     fi
@@ -207,7 +218,7 @@ check_boot_and_heartbeat() {
             if [ -f "$HEARTBEAT_FILE" ]; then
                 LAST_SEEN=$(cat "$HEARTBEAT_FILE")
                 # Validate that LAST_SEEN is a valid number
-                if expr "$LAST_SEEN" : '^[0-9]\+$' >/dev/null; then
+                if [ -n "$LAST_SEEN" ] && [ "$LAST_SEEN" -eq "$LAST_SEEN" ] 2>/dev/null; then
                     DIFF=$((NOW - LAST_SEEN))
                     # Only notify if downtime is significant (e.g., > 120 seconds)
                     if [ "$DIFF" -gt 120 ]; then
@@ -232,8 +243,10 @@ check_boot_and_heartbeat() {
         fi
     fi
 
-    # 2. Always update the heartbeat timestamp
-    echo "$NOW" > "$HEARTBEAT_FILE"
+    # 2. Only update the heartbeat timestamp if time is synchronized
+    if [ "$NOW" -gt 1700000000 ]; then
+        echo "$NOW" > "$HEARTBEAT_FILE"
+    fi
 }
 
 main() {
