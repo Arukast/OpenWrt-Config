@@ -797,6 +797,19 @@ setup_firewall() {
         fi
     fi
 
+    # Intercept and redirect all DNS traffic on port 53 to local resolver to prevent DNS leaks
+    for r in $(uci show firewall 2>/dev/null | grep -E "name='Intercept-DNS'" | awk -F'.' '{print $2}' || true); do
+        run_uci -q delete firewall.${r}
+    done
+
+    run_uci add firewall redirect
+    run_uci set firewall.@redirect[-1].name='Intercept-DNS'
+    run_uci set firewall.@redirect[-1].src='lan'
+    run_uci set firewall.@redirect[-1].src_dport='53'
+    run_uci set firewall.@redirect[-1].proto='tcp udp'
+    run_uci set firewall.@redirect[-1].dest_port='53'
+    run_uci set firewall.@redirect[-1].target='DNAT'
+
     run_uci commit firewall
     log_ok "Firewall config committed."
 }

@@ -345,6 +345,26 @@ else
     warn "LAN -> WAN forwarding missing" "Check firewall zones"
 fi
 
+# DNS Hijack Check
+_dns_redirect=0
+for r in $(uci show firewall 2>/dev/null | grep "=redirect$" | awk -F'=' '{print $1}'); do
+    name=$(uci -q get ${r}.name || true)
+    target=$(uci -q get ${r}.target || true)
+    src=$(uci -q get ${r}.src || true)
+    src_dport=$(uci -q get ${r}.src_dport || true)
+    dest_port=$(uci -q get ${r}.dest_port || true)
+    if [ "$name" = "Intercept-DNS" ] && [ "$target" = "DNAT" ] && [ "$src" = "lan" ] && [ "$src_dport" = "53" ] && [ "$dest_port" = "53" ]; then
+        _dns_redirect=1
+        break
+    fi
+done
+if [ "$_dns_redirect" -eq 1 ]; then
+    pass "DNS hijacking (Intercept-DNS) redirect rule configured"
+else
+    warn "DNS hijacking redirect rule NOT configured (vulnerable to DNS leaks)" "Run setup script to configure Intercept-DNS"
+fi
+
+
 # =============================================================================
 # 7. TAILSCALE
 # =============================================================================

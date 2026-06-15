@@ -30,7 +30,7 @@ CH_2G="6"                        # Options: 1, 6, 11 (Auto is not recommended fo
 HTMODE_2G="HT20"                 
 TXPWR_2G="13"                    # Options: 1-30 (Depends on country regulatory domain)
 
-CH_5G="157"                      # Options: 36, 40, 44, 48, 149, 153, 157, 161
+CH_5G="36"                      # Options: 36, 40, 44, 48, 149, 153, 157, 161
 # Options for HTMODE_5G: VHT20, VHT40, VHT80, VHT160 (WiFi AC) | HE20, HE40, HE80, HE160 (WiFi AX)
 HTMODE_5G="VHT80"                 
 TXPWR_5G="17"                    # Options: 1-30 (Depends on country regulatory domain)
