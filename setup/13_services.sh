@@ -11,6 +11,24 @@ enable_services() {
         done
         [ "$ENABLE_TAILSCALE" = "1" ] && [ -f /etc/init.d/tailscale ] && service tailscale enable
 
+        if [ "$ENABLE_USTEER" = "1" ]; then
+            [ -f /etc/init.d/usteer ] && service usteer enable
+        else
+            [ -f /etc/init.d/usteer ] && { service usteer stop 2>/dev/null || true; service usteer disable 2>/dev/null || true; }
+        fi
+
+        if [ "$ENABLE_BANDWIDTH_MONITOR" = "1" ]; then
+            [ -f /etc/init.d/vnstat ] && service vnstat enable
+        else
+            [ -f /etc/init.d/vnstat ] && { service vnstat stop 2>/dev/null || true; service vnstat disable 2>/dev/null || true; }
+        fi
+
+        if [ "$ENABLE_TRAFFIC_MONITOR" = "1" ]; then
+            [ -f /etc/init.d/nlbwmon ] && service nlbwmon enable
+        else
+            [ -f /etc/init.d/nlbwmon ] && { service nlbwmon stop 2>/dev/null || true; service nlbwmon disable 2>/dev/null || true; }
+        fi
+
         sysctl -p /etc/sysctl.d/99-custom.conf 2>/dev/null || true
 
         # Write post-reboot init

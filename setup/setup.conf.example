@@ -91,6 +91,9 @@ ENABLE_ADBLOCK_LEAN=1            # Options: 1 (enable), 0 (disable)
 ENABLE_WANUSB_ZONE=0             # Options: 1 (enable), 0 (disable)
 ENABLE_IPV6=1                    # Options: 1 (Enable IPv6), 0 (disable IPv6)
 USE_WAN_AS_LAN=0                 # Options: 1 (enable), 0 (disable). Repurposes WAN port as LAN in WISP mode.
+ENABLE_USTEER=1                  # Options: 1 (enable), 0 (disable). Band steering daemon.
+ENABLE_BANDWIDTH_MONITOR=1       # Options: 1 (enable), 0 (disable). vnStat bandwidth monitor.
+ENABLE_TRAFFIC_MONITOR=1         # Options: 1 (enable), 0 (disable). nlbwmon traffic monitor.
 
 # --- WireGuard over IPv6 Config ---
 ENABLE_WIREGUARD=0                # Options: 1 (enable), 0 (disable)

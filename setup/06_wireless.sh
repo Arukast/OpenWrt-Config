@@ -54,6 +54,15 @@ setup_wireless() {
 }
 
 setup_usteer() {
+    if [ "$ENABLE_USTEER" != "1" ]; then
+        log_info "Usteer Band Steering is disabled."
+        if [ "$DRY_RUN" = "0" ] && [ -f /etc/init.d/usteer ]; then
+            service usteer stop 2>/dev/null || true
+            service usteer disable 2>/dev/null || true
+        fi
+        return 0
+    fi
+
     log_step "Configuring Usteer Band Steering..."
     [ -f /etc/config/usteer ] || touch /etc/config/usteer
     run_uci -q get usteer.global >/dev/null 2>&1 || run_uci set usteer.global='usteer'

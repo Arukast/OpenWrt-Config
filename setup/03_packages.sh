@@ -30,7 +30,11 @@ exec /usr/bin/wget.orig -4 "$@"
         log_info "Continuing anyway..."
     }
 
-    run_cmd apk add ca-bundle ca-certificates curl sqm-scripts luci-app-sqm kmod-sched-cake https-dns-proxy luci-app-https-dns-proxy watchcat nano iperf3 htop vnstat2 vnstati2 luci-app-vnstat2 luci-app-nlbwmon
+    _pkgs="ca-bundle ca-certificates curl sqm-scripts luci-app-sqm kmod-sched-cake https-dns-proxy luci-app-https-dns-proxy watchcat nano iperf3 htop"
+    [ "$ENABLE_BANDWIDTH_MONITOR" = "1" ] && _pkgs="$_pkgs vnstat2 vnstati2 luci-app-vnstat2"
+    [ "$ENABLE_TRAFFIC_MONITOR" = "1" ] && _pkgs="$_pkgs luci-app-nlbwmon"
+
+    run_cmd apk add $_pkgs
 
     # Replace basic WPAD with full WPAD-OpenSSL to enable 802.11r/k/v roaming features
     log_info "Replacing basic WPAD with full WPAD-OpenSSL..."
@@ -39,7 +43,10 @@ exec /usr/bin/wget.orig -4 "$@"
             run_cmd apk del "$wpad_pkg"
         fi
     done
-    run_cmd apk add wpad-openssl usteer luci-app-usteer kmod-tcp-bbr
+
+    _wifi_pkgs="wpad-openssl kmod-tcp-bbr"
+    [ "$ENABLE_USTEER" = "1" ] && _wifi_pkgs="$_wifi_pkgs usteer luci-app-usteer"
+    run_cmd apk add $_wifi_pkgs
 
     if [ "$ENABLE_TAILSCALE" = "1" ]; then
         run_cmd apk add tailscale && log_ok "Tailscale installed." || log_warn "Tailscale install failed."

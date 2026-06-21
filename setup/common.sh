@@ -153,6 +153,9 @@ load_config() {
     : ${ENABLE_IPV6:=1}
     : ${USE_WAN_AS_LAN:=1}
     : ${ENABLE_WIREGUARD:=1}
+    : ${ENABLE_USTEER:=1}
+    : ${ENABLE_BANDWIDTH_MONITOR:=1}
+    : ${ENABLE_TRAFFIC_MONITOR:=1}
     : ${WG_PORT:="51820"}
     : ${WG_IPV4_SUBNET:="10.8.0.1/24"}
     : ${WG_IPV6_SUBNET:="fd11:2233:4455::1/64"}

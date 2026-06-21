@@ -127,6 +127,30 @@ if [ -z "$ENABLE_WG_DDNS" ]; then
     fi
 fi
 
+if [ -z "${ENABLE_USTEER:-}" ]; then
+    if [ -f /etc/init.d/usteer ] || uci -q get usteer.global >/dev/null; then
+        ENABLE_USTEER=1
+    else
+        ENABLE_USTEER=0
+    fi
+fi
+
+if [ -z "${ENABLE_BANDWIDTH_MONITOR:-}" ]; then
+    if [ -f /etc/init.d/vnstat ] || uci -q get vnstat >/dev/null; then
+        ENABLE_BANDWIDTH_MONITOR=1
+    else
+        ENABLE_BANDWIDTH_MONITOR=0
+    fi
+fi
+
+if [ -z "${ENABLE_TRAFFIC_MONITOR:-}" ]; then
+    if [ -f /etc/init.d/nlbwmon ] || uci -q get nlbwmon >/dev/null; then
+        ENABLE_TRAFFIC_MONITOR=1
+    else
+        ENABLE_TRAFFIC_MONITOR=0
+    fi
+fi
+
 
 if [ "$JSON_OUT" = "0" ]; then
     printf "\n${BOLD}============================================================${NC}\n"
@@ -169,13 +193,50 @@ else
 fi
 
 # Packages
-pkgs="sqm-scripts kmod-sched-cake https-dns-proxy watchcat curl vnstat2 vnstati2 luci-app-vnstat2 luci-app-nlbwmon"
+pkgs="sqm-scripts kmod-sched-cake https-dns-proxy watchcat curl"
+if [ "${ENABLE_USTEER:-1}" = "1" ]; then
+    pkgs="$pkgs usteer luci-app-usteer"
+fi
+if [ "${ENABLE_TRAFFIC_MONITOR:-1}" = "1" ]; then
+    pkgs="$pkgs luci-app-nlbwmon"
+fi
+
 missing=""
 for p in $pkgs; do
     if ! apk info "$p" >/dev/null 2>&1 && ! opkg status "$p" >/dev/null 2>&1; then
         missing="$missing $p"
     fi
 done
+
+# Special check for Bandwidth Monitor package variations (vnstat/vnstat2, vnstati/vnstati2, luci-app-vnstat/luci-app-vnstat2)
+if [ "${ENABLE_BANDWIDTH_MONITOR:-1}" = "1" ]; then
+    vnstat_ok=0
+    for p in vnstat2 vnstat; do
+        if apk info "$p" >/dev/null 2>&1 || opkg status "$p" >/dev/null 2>&1; then
+            vnstat_ok=1
+            break
+        fi
+    done
+    vnstati_ok=0
+    for p in vnstati2 vnstati; do
+        if apk info "$p" >/dev/null 2>&1 || opkg status "$p" >/dev/null 2>&1; then
+            vnstati_ok=1
+            break
+        fi
+    done
+    luci_vnstat_ok=0
+    for p in luci-app-vnstat2 luci-app-vnstat; do
+        if apk info "$p" >/dev/null 2>&1 || opkg status "$p" >/dev/null 2>&1; then
+            luci_vnstat_ok=1
+            break
+        fi
+    done
+
+    [ "$vnstat_ok" = "0" ] && missing="$missing vnstat"
+    [ "$vnstati_ok" = "0" ] && missing="$missing vnstati"
+    [ "$luci_vnstat_ok" = "0" ] && missing="$missing luci-app-vnstat"
+fi
+
 if [ -n "$missing" ]; then
     fail "Missing packages:$missing" "apk add$missing"
 else
@@ -210,6 +271,45 @@ if [ "${ENABLE_ADBLOCK_LEAN:-1}" = "1" ]; then
         fi
     else
         warn "adblock-lean is not installed" "Check setup script execution"
+    fi
+fi
+
+# Usteer Service Check
+if [ "${ENABLE_USTEER:-1}" = "1" ]; then
+    if [ -f /etc/init.d/usteer ]; then
+        if /etc/init.d/usteer status >/dev/null 2>&1 || pgrep usteer >/dev/null 2>&1; then
+            pass "usteer service is running"
+        else
+            warn "usteer installed but not running" "/etc/init.d/usteer start"
+        fi
+    else
+        warn "usteer is not installed" "Check setup script execution"
+    fi
+fi
+
+# vnStat Service Check
+if [ "${ENABLE_BANDWIDTH_MONITOR:-1}" = "1" ]; then
+    if [ -f /etc/init.d/vnstat ]; then
+        if /etc/init.d/vnstat status >/dev/null 2>&1 || pgrep vnstatd >/dev/null 2>&1; then
+            pass "vnstat service is running"
+        else
+            warn "vnstat installed but not running" "/etc/init.d/vnstat start"
+        fi
+    else
+        warn "vnstat is not installed" "Check setup script execution"
+    fi
+fi
+
+# nlbwmon Service Check
+if [ "${ENABLE_TRAFFIC_MONITOR:-1}" = "1" ]; then
+    if [ -f /etc/init.d/nlbwmon ]; then
+        if /etc/init.d/nlbwmon status >/dev/null 2>&1 || pgrep nlbwmon >/dev/null 2>&1; then
+            pass "nlbwmon service is running"
+        else
+            warn "nlbwmon installed but not running" "/etc/init.d/nlbwmon start"
+        fi
+    else
+        warn "nlbwmon is not installed" "Check setup script execution"
     fi
 fi
 
