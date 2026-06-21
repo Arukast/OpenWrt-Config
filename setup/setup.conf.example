@@ -53,14 +53,32 @@ ZRAM_MB="128"                    # Options: Half of your total RAM (e.g., 64, 12
 # Note: zstd gives the best compression but can cause high CPU load/lag on weak routers. lzo-rle is the safest fast default.
 ZRAM_ALGO="lzo-rle"              
 
-# --- DNS over HTTPS ---
-DOH_PRIMARY_BOOTSTRAP="1.1.1.1,1.0.0.1,2606:4700:4700::1111,2606:4700:4700::1001"          # Options: Comma separated DNS IPs
-DOH_PRIMARY_URL="https://cloudflare-dns.com/dns-query" # Options: Any DoH resolver URL
-DOH_PRIMARY_PORT="5053"                          # Options: Local port to listen on
+# --- DNS over HTTPS (DoH) ---
+# You can configure up to 4 distinct DoH resolvers. They act as automated backups
+# to one another. Below is a highly secure, privacy-respecting multi-provider setup:
 
-DOH_SECONDARY_BOOTSTRAP="9.9.9.9,149.112.112.112,2620:fe::fe,2620:fe::9" # Options: Comma separated DNS IPs
-DOH_SECONDARY_URL="https://dns.quad9.net/dns-query"    # Options: Any DoH resolver URL
-DOH_SECONDARY_PORT="5054"                        # Options: Local port to listen on
+# Resolver 1: Quad9 (Primary - Swiss privacy, automatic malware/phishing blocking)
+DOH_1_BOOTSTRAP="9.9.9.9,149.112.112.112,2620:fe::fe,2620:fe::9"
+DOH_1_URL="https://dns.quad9.net/dns-query"
+DOH_1_PORT="5053"
+
+# Resolver 2: Cloudflare Security (Secondary - Ultra fast, automatic malware blocking)
+DOH_2_BOOTSTRAP="1.1.1.2,1.0.0.2,2606:4700:4700::1112,2606:4700:4700::1002"
+DOH_2_URL="https://security.cloudflare-dns.com/dns-query"
+DOH_2_PORT="5054"
+
+# Resolver 3: AdGuard DNS (Tertiary - Dedicated ad/tracker/malware blocking)
+# To use NextDNS instead, change to your custom endpoint: https://dns.nextdns.io/YOUR_ID
+# NextDNS bootstrap: 45.90.28.0,45.90.30.0,2a07:a8c0::,2a07:a8c1::
+DOH_3_BOOTSTRAP="94.140.14.14,94.140.15.15,2a10:50c0::ad1:ff,2a10:50c0::ad2:ff"
+DOH_3_URL="https://dns.adguard-dns.com/dns-query"
+DOH_3_PORT="5055"
+
+# Resolver 4: Cloudflare Standard (Quaternary - Ultimate reliable speed fallback)
+DOH_4_BOOTSTRAP="1.1.1.1,1.0.0.1,2606:4700:4700::1111,2606:4700:4700::1001"
+DOH_4_URL="https://cloudflare-dns.com/dns-query"
+DOH_4_PORT="5056"
+
 IPV6_DNS_PRIMARY="2606:4700:4700::1111"          # Options: Any IPv6 DNS address
 IPV6_DNS_SECONDARY="2620:fe::fe"                 # Options: Any IPv6 DNS address
 
@@ -71,8 +89,8 @@ NTP_SERVERS="0.id.pool.ntp.org 1.id.pool.ntp.org 2.id.pool.ntp.org 3.id.pool.ntp
 ENABLE_TAILSCALE=1               # Options: 1 (enable), 0 (disable)
 ENABLE_ADBLOCK_LEAN=1            # Options: 1 (enable), 0 (disable)
 ENABLE_WANUSB_ZONE=0             # Options: 1 (enable), 0 (disable)
-ENABLE_IPV6=0                    # Options: 1 (Enable IPv6), 0 (disable IPv6)
-USE_WAN_AS_LAN=1                 # Options: 1 (enable), 0 (disable). Repurposes WAN port as LAN in WISP mode.
+ENABLE_IPV6=1                    # Options: 1 (Enable IPv6), 0 (disable IPv6)
+USE_WAN_AS_LAN=0                 # Options: 1 (enable), 0 (disable). Repurposes WAN port as LAN in WISP mode.
 
 # --- WireGuard over IPv6 Config ---
 ENABLE_WIREGUARD=0                # Options: 1 (enable), 0 (disable)

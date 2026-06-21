@@ -81,10 +81,11 @@ setup_firewall() {
     fi
 
     # Intercept and redirect all DNS traffic on port 53 to local resolver to prevent DNS leaks
-    for r in $(uci show firewall 2>/dev/null | grep -E "name='Intercept-DNS'" | awk -F'.' '{print $2}' || true); do
-        run_uci -q delete firewall.${r}
+    for r in $(uci show firewall 2>/dev/null | grep -E "name='Intercept-DNS|name='Intercept-DNS-IPv6'" | awk -F'.' '{print $2}' || true); do
+        [ -n "$r" ] && run_uci -q delete firewall.${r}
     done
 
+    # IPv4 DNS Intercept
     run_uci add firewall redirect
     run_uci set firewall.@redirect[-1].name='Intercept-DNS'
     run_uci set firewall.@redirect[-1].src='lan'
@@ -92,6 +93,32 @@ setup_firewall() {
     run_uci set firewall.@redirect[-1].proto='tcp udp'
     run_uci set firewall.@redirect[-1].dest_port='53'
     run_uci set firewall.@redirect[-1].target='DNAT'
+    run_uci set firewall.@redirect[-1].family='ipv4'
+
+    if [ "$ENABLE_IPV6" = "1" ]; then
+        # IPv6 DNS Intercept
+        run_uci add firewall redirect
+        run_uci set firewall.@redirect[-1].name='Intercept-DNS-IPv6'
+        run_uci set firewall.@redirect[-1].src='lan'
+        run_uci set firewall.@redirect[-1].src_dport='53'
+        run_uci set firewall.@redirect[-1].proto='tcp udp'
+        run_uci set firewall.@redirect[-1].dest_port='53'
+        run_uci set firewall.@redirect[-1].target='DNAT'
+        run_uci set firewall.@redirect[-1].family='ipv6'
+    fi
+
+    # Block DNS-over-TLS (DoT) to force clients to fall back to standard DNS (which is intercepted)
+    for r in $(uci show firewall 2>/dev/null | grep -E "name='Block-DoT'" | awk -F'.' '{print $2}' || true); do
+        [ -n "$r" ] && run_uci -q delete firewall.${r}
+    done
+
+    run_uci add firewall rule
+    run_uci set firewall.@rule[-1].name='Block-DoT'
+    run_uci set firewall.@rule[-1].src='lan'
+    run_uci set firewall.@rule[-1].dest='wan'
+    run_uci set firewall.@rule[-1].dest_port='853'
+    run_uci set firewall.@rule[-1].proto='tcp udp'
+    run_uci set firewall.@rule[-1].target='REJECT'
 
     run_uci commit firewall
     log_ok "Firewall config committed."

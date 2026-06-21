@@ -8,32 +8,31 @@ setup_dns() {
         run_uci -q delete https-dns-proxy.@https-dns-proxy[0]
     done
 
-    # Primary
-    run_uci add https-dns-proxy https-dns-proxy
-    run_uci set https-dns-proxy.@https-dns-proxy[-1].bootstrap_dns="$DOH_PRIMARY_BOOTSTRAP"
-    run_uci set https-dns-proxy.@https-dns-proxy[-1].resolver_url="$DOH_PRIMARY_URL"
-    run_uci set https-dns-proxy.@https-dns-proxy[-1].listen_addr='127.0.0.1'
-    run_uci set https-dns-proxy.@https-dns-proxy[-1].listen_port="$DOH_PRIMARY_PORT"
-    run_uci set https-dns-proxy.@https-dns-proxy[-1].use_http1='0'
-    run_uci set https-dns-proxy.@https-dns-proxy[-1].dscp_codepoint='46'
-
-    # Secondary
-    run_uci add https-dns-proxy https-dns-proxy
-    run_uci set https-dns-proxy.@https-dns-proxy[-1].bootstrap_dns="$DOH_SECONDARY_BOOTSTRAP"
-    run_uci set https-dns-proxy.@https-dns-proxy[-1].resolver_url="$DOH_SECONDARY_URL"
-    run_uci set https-dns-proxy.@https-dns-proxy[-1].listen_addr='127.0.0.1'
-    run_uci set https-dns-proxy.@https-dns-proxy[-1].listen_port="$DOH_SECONDARY_PORT"
-    run_uci set https-dns-proxy.@https-dns-proxy[-1].use_http1='0'
-    run_uci set https-dns-proxy.@https-dns-proxy[-1].dscp_codepoint='46'
-    run_uci set https-dns-proxy.config.procd_trigger_wan6="$ENABLE_IPV6"
-    run_uci commit https-dns-proxy
-
     run_uci set dhcp.@dnsmasq[0].cachesize='5000'
     run_uci set dhcp.@dnsmasq[0].noresolv='1'
     run_uci set dhcp.@dnsmasq[0].localservice='0'
     run_uci -q delete dhcp.@dnsmasq[0].server || true
-    run_uci add_list dhcp.@dnsmasq[0].server="127.0.0.1#${DOH_PRIMARY_PORT}"
-    run_uci add_list dhcp.@dnsmasq[0].server="127.0.0.1#${DOH_SECONDARY_PORT}"
+
+    for idx in 1 2 3 4; do
+        eval bootstrap="\$DOH_${idx}_BOOTSTRAP"
+        eval url="\$DOH_${idx}_URL"
+        eval port="\$DOH_${idx}_PORT"
+
+        if [ -n "$url" ] && [ -n "$bootstrap" ] && [ -n "$port" ]; then
+            log_info "Configuring DoH Resolver ${idx}: ${url}"
+            run_uci add https-dns-proxy https-dns-proxy
+            run_uci set https-dns-proxy.@https-dns-proxy[-1].bootstrap_dns="$bootstrap"
+            run_uci set https-dns-proxy.@https-dns-proxy[-1].resolver_url="$url"
+            run_uci set https-dns-proxy.@https-dns-proxy[-1].listen_addr='127.0.0.1'
+            run_uci set https-dns-proxy.@https-dns-proxy[-1].listen_port="$port"
+            run_uci set https-dns-proxy.@https-dns-proxy[-1].use_http1='0'
+            run_uci set https-dns-proxy.@https-dns-proxy[-1].dscp_codepoint='46'
+
+            run_uci add_list dhcp.@dnsmasq[0].server="127.0.0.1#${port}"
+        fi
+    done
+    run_uci set https-dns-proxy.config.procd_trigger_wan6="$ENABLE_IPV6"
+    run_uci commit https-dns-proxy
 
     run_uci -q delete dhcp.@dnsmasq[0].address || true
     run_uci add_list dhcp.@dnsmasq[0].address='/use-application-dns.net/'
@@ -51,18 +50,9 @@ setup_dns() {
         run_uci set dhcp.lan.ra='relay'
         run_uci set dhcp.lan.ndp='relay'
         
-        # Point clients to the router's Link-Local address to ensure queries go through Dnsmasq (DoH + Adblock)
-        # We find the fe80:: address of br-lan dynamically
-        _lan_ll_addr=$(ip -6 addr show dev br-lan 2>/dev/null | awk '/inet6 fe80/{print $2}' | cut -d/ -f1 | head -n1)
+        # Point clients to the router's stable Link-Local address to ensure queries go through Dnsmasq (DoH + Adblock)
         run_uci -q delete dhcp.lan.dns || true
-        if [ -n "$_lan_ll_addr" ]; then
-            log_info "Detected LAN IPv6 Link-Local: $_lan_ll_addr"
-            run_uci add_list dhcp.lan.dns="$_lan_ll_addr"
-        else
-            # Fallback to external if LL not yet assigned (unlikely, but safe)
-            run_uci add_list dhcp.lan.dns="$IPV6_DNS_PRIMARY"
-            run_uci add_list dhcp.lan.dns="$IPV6_DNS_SECONDARY"
-        fi
+        run_uci add_list dhcp.lan.dns="fe80::1"
 
         run_uci -q delete dhcp.${_wan6_if} || true
         run_uci set dhcp.${_wan6_if}='dhcp'

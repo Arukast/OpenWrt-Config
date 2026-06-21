@@ -22,6 +22,10 @@ setup_network() {
     # LAN Config
     run_uci set network.lan.ipaddr="$LAN_IP"
     run_uci set network.lan.netmask="$LAN_NETMASK"
+    if [ "$ENABLE_IPV6" = "1" ]; then
+        run_uci -q delete network.lan.ip6addr || true
+        run_uci add_list network.lan.ip6addr="fe80::1/64"
+    fi
 
     if [ "$CONNECTION_MODE" = "WISP" ]; then
         run_uci -q delete network.wan  || true

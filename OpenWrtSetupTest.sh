@@ -101,8 +101,6 @@ fi
 
 DL_KBPS=${DL_KBPS:-$(uci -q get sqm.@queue[0].download || echo "0")}
 UL_KBPS=${UL_KBPS:-$(uci -q get sqm.@queue[0].upload || echo "0")}
-DOH_PORT1=${DOH_PRIMARY_PORT:-$(uci -q get https-dns-proxy.@https-dns-proxy[0].listen_port || echo "5053")}
-DOH_PORT2=${DOH_SECONDARY_PORT:-$(uci -q get https-dns-proxy.@https-dns-proxy[1].listen_port || echo "5054")}
 
 # Intelligent auto-detection of active features if no setup.conf was loaded
 if [ -z "$ENABLE_WIREGUARD" ]; then
@@ -304,13 +302,22 @@ fi
 # =============================================================================
 section "5. DNS DoH"
 
-for port in $DOH_PORT1 $DOH_PORT2; do
-    if netstat -lnup 2>/dev/null | grep -q ":${port}"; then
-        pass "https-dns-proxy listening on :${port}"
-    else
-        fail "https-dns-proxy not listening on :${port}" "/etc/init.d/https-dns-proxy restart"
+_ports_checked=0
+for r in $(uci show https-dns-proxy 2>/dev/null | grep "=https-dns-proxy$" | awk -F'=' '{print $1}'); do
+    port=$(uci -q get ${r}.listen_port || true)
+    if [ -n "$port" ]; then
+        _ports_checked=$((_ports_checked + 1))
+        if netstat -lnup 2>/dev/null | grep -q ":${port}"; then
+            pass "https-dns-proxy listening on :${port}"
+        else
+            fail "https-dns-proxy not listening on :${port}" "/etc/init.d/https-dns-proxy restart"
+        fi
     fi
 done
+
+if [ "$_ports_checked" -eq 0 ]; then
+    fail "No https-dns-proxy configurations found in UCI" "/etc/init.d/https-dns-proxy start"
+fi
 
 if nslookup google.com 127.0.0.1 >/dev/null 2>&1; then
     pass "DNS resolution via DoH OK"
@@ -346,22 +353,54 @@ else
 fi
 
 # DNS Hijack Check
-_dns_redirect=0
+_dns_redirect_ipv4=0
+_dns_redirect_ipv6=0
 for r in $(uci show firewall 2>/dev/null | grep "=redirect$" | awk -F'=' '{print $1}'); do
     name=$(uci -q get ${r}.name || true)
     target=$(uci -q get ${r}.target || true)
     src=$(uci -q get ${r}.src || true)
     src_dport=$(uci -q get ${r}.src_dport || true)
     dest_port=$(uci -q get ${r}.dest_port || true)
+    family=$(uci -q get ${r}.family || true)
     if [ "$name" = "Intercept-DNS" ] && [ "$target" = "DNAT" ] && [ "$src" = "lan" ] && [ "$src_dport" = "53" ] && [ "$dest_port" = "53" ]; then
-        _dns_redirect=1
+        _dns_redirect_ipv4=1
+    elif [ "$name" = "Intercept-DNS-IPv6" ] && [ "$target" = "DNAT" ] && [ "$src" = "lan" ] && [ "$src_dport" = "53" ] && [ "$dest_port" = "53" ] && [ "$family" = "ipv6" ]; then
+        _dns_redirect_ipv6=1
+    fi
+done
+
+if [ "$_dns_redirect_ipv4" -eq 1 ]; then
+    pass "IPv4 DNS hijacking (Intercept-DNS) redirect rule configured"
+else
+    warn "IPv4 DNS hijacking redirect rule NOT configured (vulnerable to DNS leaks)" "Run setup script to configure Intercept-DNS"
+fi
+
+if [ "${ENABLE_IPV6:-1}" = "1" ]; then
+    if [ "$_dns_redirect_ipv6" -eq 1 ]; then
+        pass "IPv6 DNS hijacking (Intercept-DNS-IPv6) redirect rule configured"
+    else
+        warn "IPv6 DNS hijacking redirect rule NOT configured (vulnerable to DNS leaks)" "Run setup script to configure Intercept-DNS-IPv6"
+    fi
+fi
+
+# DoT Blocking Check
+_dot_blocked=0
+for r in $(uci show firewall 2>/dev/null | grep "=rule$" | awk -F'=' '{print $1}'); do
+    name=$(uci -q get ${r}.name || true)
+    src=$(uci -q get ${r}.src || true)
+    dest=$(uci -q get ${r}.dest || true)
+    dest_port=$(uci -q get ${r}.dest_port || true)
+    target=$(uci -q get ${r}.target || true)
+    if [ "$name" = "Block-DoT" ] && [ "$src" = "lan" ] && [ "$dest" = "wan" ] && [ "$dest_port" = "853" ] && [ "$target" = "REJECT" ]; then
+        _dot_blocked=1
         break
     fi
 done
-if [ "$_dns_redirect" -eq 1 ]; then
-    pass "DNS hijacking (Intercept-DNS) redirect rule configured"
+
+if [ "$_dot_blocked" -eq 1 ]; then
+    pass "DNS-over-TLS (DoT) blocking rule configured"
 else
-    warn "DNS hijacking redirect rule NOT configured (vulnerable to DNS leaks)" "Run setup script to configure Intercept-DNS"
+    warn "DoT blocking rule NOT configured (clients can bypass local DNS/adblock)" "Run setup script to configure Block-DoT"
 fi
 
 

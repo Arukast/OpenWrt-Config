@@ -112,12 +112,38 @@ load_config() {
     : ${SQM_MTU:="1480"}
     : ${ZRAM_MB:="128"}
     : ${ZRAM_ALGO:="lzo-rle"}
-    : ${DOH_PRIMARY_BOOTSTRAP:="1.1.1.1,1.0.0.1,2606:4700:4700::1111,2606:4700:4700::1001"}
-    : ${DOH_PRIMARY_URL:="https://cloudflare-dns.com/dns-query"}
-    : ${DOH_PRIMARY_PORT:="5053"}
-    : ${DOH_SECONDARY_BOOTSTRAP:="9.9.9.9,149.112.112.112,2620:fe::fe,2620:fe::9"}
-    : ${DOH_SECONDARY_URL:="https://dns.quad9.net/dns-query"}
-    : ${DOH_SECONDARY_PORT:="5054"}
+    # Backward compatibility mappings for legacy config files
+    if [ -n "${DOH_PRIMARY_URL:-}" ]; then
+        : ${DOH_1_BOOTSTRAP:="$DOH_PRIMARY_BOOTSTRAP"}
+        : ${DOH_1_URL:="$DOH_PRIMARY_URL"}
+        : ${DOH_1_PORT:="$DOH_PRIMARY_PORT"}
+    fi
+    if [ -n "${DOH_SECONDARY_URL:-}" ]; then
+        : ${DOH_2_BOOTSTRAP:="$DOH_SECONDARY_BOOTSTRAP"}
+        : ${DOH_2_URL:="$DOH_SECONDARY_URL"}
+        : ${DOH_2_PORT:="$DOH_SECONDARY_PORT"}
+    fi
+
+    # Resolver 1: Quad9 (Safety + Privacy focus)
+    : ${DOH_1_BOOTSTRAP:="9.9.9.9,149.112.112.112,2620:fe::fe,2620:fe::9"}
+    : ${DOH_1_URL:="https://dns.quad9.net/dns-query"}
+    : ${DOH_1_PORT:="5053"}
+
+    # Resolver 2: Cloudflare Security (Speed + Malware block)
+    : ${DOH_2_BOOTSTRAP:="1.1.1.2,1.0.0.2,2606:4700:4700::1112,2606:4700:4700::1002"}
+    : ${DOH_2_URL:="https://security.cloudflare-dns.com/dns-query"}
+    : ${DOH_2_PORT:="5054"}
+
+    # Resolver 3: AdGuard DNS (Adblocking/Privacy backup)
+    : ${DOH_3_BOOTSTRAP:="94.140.14.14,94.140.15.15,2a10:50c0::ad1:ff,2a10:50c0::ad2:ff"}
+    : ${DOH_3_URL:="https://dns.adguard-dns.com/dns-query"}
+    : ${DOH_3_PORT:="5055"}
+
+    # Resolver 4: Cloudflare Standard (Ultimate speed & reliability backup)
+    : ${DOH_4_BOOTSTRAP:="1.1.1.1,1.0.0.1,2606:4700:4700::1111,2606:4700:4700::1001"}
+    : ${DOH_4_URL:="https://cloudflare-dns.com/dns-query"}
+    : ${DOH_4_PORT:="5056"}
+
     : ${IPV6_DNS_PRIMARY:="2606:4700:4700::1111"}
     : ${IPV6_DNS_SECONDARY:="2620:fe::fe"}
     : ${NTP_SERVERS:="0.id.pool.ntp.org 1.id.pool.ntp.org 2.id.pool.ntp.org 3.id.pool.ntp.org"}
