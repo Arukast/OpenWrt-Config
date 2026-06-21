@@ -10,17 +10,11 @@ setup_tuning() {
             rm -f /etc/init.d/zram-setup
         fi
         
-        # Configure standard zram-swap via UCI
-        while uci -q get zram.@zram[0] >/dev/null 2>&1; do
-            run_uci -q delete zram.@zram[0]
-        done
-
-        run_uci add zram zram
-        run_uci set zram.@zram[-1].enabled='1'
-        run_uci set zram.@zram[-1].size="$ZRAM_MB"
-        run_uci set zram.@zram[-1].comp_algorithm="$ZRAM_ALGO"
-        run_uci commit zram
-        log_ok "ZRAM standardized swap configured via UCI."
+        # Configure standard zram-swap via system config
+        run_uci set system.@system[0].zram_size_mb="$ZRAM_MB"
+        run_uci set system.@system[0].zram_comp_algo="$ZRAM_ALGO"
+        run_uci commit system
+        log_ok "ZRAM standardized swap configured via system config."
     fi
 
     run_uci set system.@system[0].conloglevel='8'

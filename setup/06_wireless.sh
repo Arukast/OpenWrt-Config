@@ -38,7 +38,7 @@ setup_wireless() {
                 run_uci set wireless.${iface}.mobility_domain='1234'
                 
                 # Enable 802.11k (RRM) & 802.11v (BTM) to support Usteer band steering
-                run_uci set wireless.${iface}.rrm='1'
+                run_uci set wireless.${iface}.ieee80211k='1'
                 run_uci set wireless.${iface}.rrm_beacon_report='1'
                 run_uci set wireless.${iface}.rrm_neighbor_report='1'
                 run_uci set wireless.${iface}.bss_transition='1'

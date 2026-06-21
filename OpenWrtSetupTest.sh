@@ -153,11 +153,27 @@ fi
 
 
 if [ "$JSON_OUT" = "0" ]; then
+    if [ -f /proc/uptime ]; then
+        uptime_sec=$(cut -d. -f1 /proc/uptime)
+        _d=$((uptime_sec / 86400))
+        _h=$(( (uptime_sec % 86400) / 3600 ))
+        _m=$(( (uptime_sec % 3600) / 60 ))
+        if [ $_d -gt 0 ]; then
+            UPTIME_STR="${_d} days, ${_h} hours, ${_m} mins"
+        elif [ $_h -gt 0 ]; then
+            UPTIME_STR="${_h} hours, ${_m} mins"
+        else
+            UPTIME_STR="${_m} mins"
+        fi
+    else
+        UPTIME_STR=$(uptime)
+    fi
+
     printf "\n${BOLD}============================================================${NC}\n"
     printf "${BOLD}  OpenWrt Setup Verification${NC}\n"
     printf "  Date   : $(date)\n"
     printf "  Host   : $(uname -n)\n"
-    printf "  Uptime : $(uptime | awk -F'( |,|:)+' '{print $6" days, "$8" hours, "$9" mins"}')\n"
+    printf "  Uptime : %s\n" "$UPTIME_STR"
     [ -n "$CONFIG_FILE" ] && [ -f "$CONFIG_FILE" ] && printf "  Config : Loaded from %s\n" "$CONFIG_FILE"
     printf "${BOLD}============================================================${NC}\n"
 fi

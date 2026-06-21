@@ -138,9 +138,11 @@ main() {
 
     END_TIME=$(date +%s)
     ELAPSED=$((END_TIME - START_TIME))
+    MINUTES=$((ELAPSED / 60))
+    SECONDS=$((ELAPSED % 60))
 
     printf "\n${BOLD}============================================================${NC}\n"
-    printf "${GREEN}  Configuration complete. Elapsed time: %ds${NC}\n" "$ELAPSED"
+    printf "${GREEN}  Configuration complete. Elapsed time: %dm %ds${NC}\n" "$MINUTES" "$SECONDS"
     printf "${BOLD}============================================================${NC}\n"
 
     if [ "$ENABLE_WIREGUARD" = "1" ] && [ "$DRY_RUN" = "0" ]; then
