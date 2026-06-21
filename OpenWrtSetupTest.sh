@@ -532,10 +532,19 @@ for r in $(uci show firewall 2>/dev/null | grep "=rule$" | awk -F'=' '{print $1}
     fi
 done
 
-if [ "$_dot_blocked" -eq 1 ]; then
-    pass "DNS-over-TLS (DoT) blocking rule configured"
+_block_dot_expected=${BLOCK_DOT:-1}
+if [ "$_block_dot_expected" -eq 1 ]; then
+    if [ "$_dot_blocked" -eq 1 ]; then
+        pass "DNS-over-TLS (DoT) blocking rule configured"
+    else
+        warn "DoT blocking rule NOT configured (clients can bypass local DNS/adblock)" "Run setup script to configure Block-DoT"
+    fi
 else
-    warn "DoT blocking rule NOT configured (clients can bypass local DNS/adblock)" "Run setup script to configure Block-DoT"
+    if [ "$_dot_blocked" -eq 0 ]; then
+        pass "DNS-over-TLS (DoT) is allowed (BLOCK_DOT is disabled)"
+    else
+        fail "DoT blocking rule is present but BLOCK_DOT is disabled" "Run setup script to remove Block-DoT rule"
+    fi
 fi
 
 

@@ -151,6 +151,7 @@ load_config() {
     : ${ENABLE_ADBLOCK_LEAN:=1}
     : ${ENABLE_WANUSB_ZONE:=0}
     : ${ENABLE_IPV6:=1}
+    : ${BLOCK_DOT:=1}
     : ${USE_WAN_AS_LAN:=1}
     : ${ENABLE_WIREGUARD:=1}
     : ${ENABLE_USTEER:=1}

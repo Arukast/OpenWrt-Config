@@ -107,18 +107,23 @@ setup_firewall() {
         run_uci set firewall.@redirect[-1].family='ipv6'
     fi
 
-    # Block DNS-over-TLS (DoT) to force clients to fall back to standard DNS (which is intercepted)
+    # Manage DNS-over-TLS (DoT) block rule based on config toggle
     for r in $(uci show firewall 2>/dev/null | grep -E "name='Block-DoT'" | awk -F'.' '{print $2}' || true); do
         [ -n "$r" ] && run_uci -q delete firewall.${r}
     done
 
-    run_uci add firewall rule
-    run_uci set firewall.@rule[-1].name='Block-DoT'
-    run_uci set firewall.@rule[-1].src='lan'
-    run_uci set firewall.@rule[-1].dest='wan'
-    run_uci set firewall.@rule[-1].dest_port='853'
-    run_uci set firewall.@rule[-1].proto='tcp udp'
-    run_uci set firewall.@rule[-1].target='REJECT'
+    if [ "$BLOCK_DOT" = "1" ]; then
+        run_uci add firewall rule
+        run_uci set firewall.@rule[-1].name='Block-DoT'
+        run_uci set firewall.@rule[-1].src='lan'
+        run_uci set firewall.@rule[-1].dest='wan'
+        run_uci set firewall.@rule[-1].dest_port='853'
+        run_uci set firewall.@rule[-1].proto='tcp udp'
+        run_uci set firewall.@rule[-1].target='REJECT'
+        log_info "DNS-over-TLS (DoT) block rule enabled."
+    else
+        log_info "DNS-over-TLS (DoT) block rule disabled."
+    fi
 
     run_uci commit firewall
     log_ok "Firewall config committed."

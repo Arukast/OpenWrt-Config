@@ -88,6 +88,7 @@ ENABLE_TAILSCALE=1               # Options: 1 (enable), 0 (disable)
 ENABLE_ADBLOCK_LEAN=1            # Options: 1 (enable), 0 (disable)
 ENABLE_WANUSB_ZONE=0             # Options: 1 (enable), 0 (disable)
 ENABLE_IPV6=1                    # Options: 1 (Enable IPv6), 0 (disable IPv6)
+BLOCK_DOT=1                      # Options: 1 (block port 853 DoT to force local DNS), 0 (allow DoT)
 USE_WAN_AS_LAN=0                 # Options: 1 (enable), 0 (disable). Repurposes WAN port as LAN in WISP mode.
 ENABLE_USTEER=1                  # Options: 1 (enable), 0 (disable). Band steering daemon.
 ENABLE_BANDWIDTH_MONITOR=1       # Options: 1 (enable), 0 (disable). vnStat bandwidth monitor.
