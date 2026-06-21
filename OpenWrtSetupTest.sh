@@ -250,7 +250,7 @@ if [ "${ZRAM_MB:-0}" -gt 0 ] || lsmod | grep -q zram; then
         zram_mb=$(( zram_size / 1024 / 1024 ))
         pass "ZRAM active (${zram_mb}MB)"
     else
-        fail "ZRAM enabled but /dev/zram0 not found" "/etc/init.d/zram-setup restart"
+        fail "ZRAM enabled but /dev/zram0 not found" "/etc/init.d/zram restart"
     fi
 fi
 
@@ -431,6 +431,25 @@ else
     warn "DoH canary NOT blocked" "Add address=/use-application-dns.net/ to dnsmasq"
 fi
 
+# DNSmasq Hardening Checks
+if [ "$(uci -q get dhcp.@dnsmasq[0].localservice)" = "1" ]; then
+    pass "DNSmasq localservice is enabled (secure default)"
+else
+    fail "DNSmasq localservice is disabled (vulnerable to open resolver)" "uci set dhcp.@dnsmasq[0].localservice='1' && uci commit dhcp && /etc/init.d/dnsmasq restart"
+fi
+
+_has_lan=0
+_has_wg0=0
+for iface in $(uci -q get dhcp.@dnsmasq[0].interface || echo "none"); do
+    [ "$iface" = "lan" ] && _has_lan=1
+    [ "$iface" = "wg0" ] && _has_wg0=1
+done
+if [ "$_has_lan" -eq 1 ] && [ "$_has_wg0" -eq 1 ]; then
+    pass "DNSmasq is explicitly listening on authorized interfaces (lan, wg0)"
+else
+    fail "DNSmasq is not listening explicitly on lan and wg0 interfaces" "Run setup script"
+fi
+
 # =============================================================================
 # 6. FIREWALL
 # =============================================================================
@@ -542,6 +561,22 @@ if [ "${ENABLE_IPV6:-1}" = "1" ]; then
         pass "IPv6 ULA prefix is disabled (Prevents LAN routing confusion)"
     else
         warn "IPv6 ULA prefix still exists ($ula)" "uci delete network.globals.ula_prefix && uci commit network"
+    fi
+
+    # Check static LAN IPv6 ULA address configuration
+    lan_ip6=$(uci -q get network.lan.ip6addr | grep "fd11:2233:4455::1" || true)
+    if [ -n "$lan_ip6" ]; then
+        pass "LAN interface has static ULA IPv6 address (fd11:2233:4455::1)"
+    else
+        fail "LAN interface lacks static ULA IPv6 address" "Run setup script"
+    fi
+
+    # Check DHCPv6 DNS advertisement
+    lan_dns=$(uci -q get dhcp.lan.dns | grep "fd11:2233:4455::1" || true)
+    if [ -n "$lan_dns" ]; then
+        pass "DHCPv6 DNS advertisements point to secure local ULA resolver"
+    else
+        fail "DHCPv6 DNS advertisements do not point to ULA resolver" "Run setup script"
     fi
 
     if [ "$CONNECTION_MODE" = "WIRED" ]; then

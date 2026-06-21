@@ -11,10 +11,20 @@ CRON
     fi
 
     if [ "$ENABLE_ADBLOCK_LEAN" = "1" ] && [ "$DRY_RUN" = "0" ]; then
-        uclient-fetch https://raw.githubusercontent.com/lynxthecat/adblock-lean/master/abl-install.sh -O /tmp/abl-install.sh
+        log_info "Downloading pinned adblock-lean installer..."
+        uclient-fetch https://raw.githubusercontent.com/lynxthecat/adblock-lean/046b19126185acfe7ce1f8d6e8489df1bdd2e046/abl-install.sh -O /tmp/abl-install.sh
         if [ -f /tmp/abl-install.sh ]; then
-            sh /tmp/abl-install.sh -v release
+            # Verify script SHA256 integrity
+            _sha="55afa0dfab5c3ceaa1ff41c1ed7088140a0965e724f79a9fa1423645545b5bf5"
+            if echo "$_sha  /tmp/abl-install.sh" | sha256sum -c >/dev/null 2>&1; then
+                log_info "SHA256 verified successfully. Installing..."
+                sh /tmp/abl-install.sh -v release
+            else
+                log_error "SHA256 verification FAILED for adblock-lean installer! Skipping installation."
+            fi
             rm -f /tmp/abl-install.sh
+        else
+            log_error "Failed to download adblock-lean installer."
         fi
     fi
 

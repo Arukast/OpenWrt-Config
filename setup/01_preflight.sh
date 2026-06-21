@@ -17,6 +17,11 @@ pre_flight_checks() {
         esac
     done
 
+    # WiFi key length validation (Must be 8-63 characters)
+    if [ ${#WIFI_KEY} -lt 8 ] || [ ${#WIFI_KEY} -gt 63 ]; then
+        _abort "WIFI_KEY must be between 8 and 63 characters (got: '${#WIFI_KEY}')."
+    fi
+
     # Subnet Conflict Detection
     # If LAN and WAN share the same subnet, outbound traffic may loop back.
     _lan_addr=$(ip -4 addr show dev br-lan 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -1)
@@ -45,8 +50,8 @@ pre_flight_checks() {
             ntpd -q -n -p "$_ntp" 2>/dev/null && _synced=1 && break
         done
         if [ "$_synced" = "0" ]; then
-            # Fallback: read time from HTTP Date header
-            _d=$(uclient-fetch -q -O /dev/null http://1.1.1.1/ 2>&1 | sed -n 's/.*Date: //p' | head -1)
+            # Fallback: read time from HTTP Date header using robust busybox wget
+            _d=$(wget -S --spider http://1.1.1.1/ 2>&1 | grep -Fi 'Date:' | sed -E 's/^[ \t]*[Dd]ate:[ \t]*//' | head -1)
             [ -n "$_d" ] && date -s "$_d" >/dev/null 2>&1 && _synced=1
         fi
         hwclock -w 2>/dev/null || true

@@ -31,6 +31,7 @@ exec /usr/bin/wget.orig -4 "$@"
     }
 
     _pkgs="ca-bundle ca-certificates curl sqm-scripts luci-app-sqm kmod-sched-cake https-dns-proxy luci-app-https-dns-proxy watchcat nano iperf3 htop"
+    [ -n "$ZRAM_MB" ] && _pkgs="$_pkgs zram-swap"
     [ "$ENABLE_BANDWIDTH_MONITOR" = "1" ] && _pkgs="$_pkgs vnstat2 vnstati2 luci-app-vnstat2"
     [ "$ENABLE_TRAFFIC_MONITOR" = "1" ] && _pkgs="$_pkgs luci-app-nlbwmon"
 

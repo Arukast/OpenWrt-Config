@@ -3,32 +3,24 @@
 setup_tuning() {
     log_step "Configuring ZRAM and Watchcat..."
 
-    if [ -n "$ZRAM_MB" ] && [ "$DRY_RUN" = "0" ]; then
-        apk add kmod-zram 2>/dev/null || true
-        ZRAM_BYTES=$(( ZRAM_MB * 1024 * 1024 ))
-        cat > /etc/init.d/zram-setup << ZRAMEOF
-#!/bin/sh /etc/rc.common
-START=12
-STOP=89
-USE_PROCD=1
-# Notice: \${ZRAM_ALGO} and \${ZRAM_BYTES} are expanded at script generation time. This is intentional.
-start_service() {
-    modprobe zram 2>/dev/null || true
-    sleep 1
-    [ -b /dev/zram0 ] || return 1
-    echo ${ZRAM_ALGO} > /sys/block/zram0/comp_algorithm
-    echo ${ZRAM_BYTES} > /sys/block/zram0/disksize
-    mkswap /dev/zram0
-    swapon -p 10 /dev/zram0
-}
-stop_service() {
-    swapoff /dev/zram0 2>/dev/null || true
-    echo 1 > /sys/block/zram0/reset 2>/dev/null || true
-}
-ZRAMEOF
-        chmod +x /etc/init.d/zram-setup
-        /etc/init.d/zram-setup enable
-        log_ok "ZRAM init script configured."
+    if [ -n "$ZRAM_MB" ]; then
+        if [ "$DRY_RUN" = "0" ] && [ -f /etc/init.d/zram-setup ]; then
+            /etc/init.d/zram-setup disable 2>/dev/null || true
+            /etc/init.d/zram-setup stop 2>/dev/null || true
+            rm -f /etc/init.d/zram-setup
+        fi
+        
+        # Configure standard zram-swap via UCI
+        while uci -q get zram.@zram[0] >/dev/null 2>&1; do
+            run_uci -q delete zram.@zram[0]
+        done
+
+        run_uci add zram zram
+        run_uci set zram.@zram[-1].enabled='1'
+        run_uci set zram.@zram[-1].size="$ZRAM_MB"
+        run_uci set zram.@zram[-1].comp_algorithm="$ZRAM_ALGO"
+        run_uci commit zram
+        log_ok "ZRAM standardized swap configured via UCI."
     fi
 
     run_uci set system.@system[0].conloglevel='8'

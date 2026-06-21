@@ -163,7 +163,7 @@ load_config() {
     : ${ENABLE_WG_DDNS:=0}
     : ${WG_DDNS_DOMAIN:="yourdomain.duckdns.org"}
     : ${WG_DDNS_TOKEN:="your-duckdns-token"}
-    : ${WG_ALLOW_ADMIN:=1}
+    : ${WG_ALLOW_ADMIN:=0}
 
     if [ "$WIFI_KEY" = "CHANGE_ME" ] || [ "$WIFI_KEY" = "CHANGE_ME_SUPER_SECRET_KEY" ]; then
         _abort "WIFI_KEY is not set to a secure value. Please update your config file."

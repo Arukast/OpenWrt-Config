@@ -10,7 +10,11 @@ setup_dns() {
 
     run_uci set dhcp.@dnsmasq[0].cachesize='5000'
     run_uci set dhcp.@dnsmasq[0].noresolv='1'
-    run_uci set dhcp.@dnsmasq[0].localservice='0'
+    run_uci set dhcp.@dnsmasq[0].localservice='1'
+    run_uci -q delete dhcp.@dnsmasq[0].interface || true
+    run_uci add_list dhcp.@dnsmasq[0].interface='lan'
+    run_uci add_list dhcp.@dnsmasq[0].interface='wg0'
+    [ "$ENABLE_TAILSCALE" = "1" ] && run_uci add_list dhcp.@dnsmasq[0].interface='tailscale0'
     run_uci -q delete dhcp.@dnsmasq[0].server || true
 
     for idx in 1 2 3 4; do
@@ -50,9 +54,9 @@ setup_dns() {
         run_uci set dhcp.lan.ra='relay'
         run_uci set dhcp.lan.ndp='relay'
         
-        # Point clients to the router's stable Link-Local address to ensure queries go through Dnsmasq (DoH + Adblock)
+        # Point clients to the router's stable Unique Local Address to ensure queries go through Dnsmasq (DoH + Adblock)
         run_uci -q delete dhcp.lan.dns || true
-        run_uci add_list dhcp.lan.dns="fe80::1"
+        run_uci add_list dhcp.lan.dns="fd11:2233:4455::1"
 
         run_uci -q delete dhcp.${_wan6_if} || true
         run_uci set dhcp.${_wan6_if}='dhcp'
