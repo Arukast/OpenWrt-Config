@@ -69,6 +69,11 @@ if [ "$INTERFACE" = "wwan" ] || [ "$INTERFACE" = "wan" ]; then
         fi
 
         /usr/bin/telegram_notify.sh "NETWORK" "$MSG"
+
+        # Trigger router monitor in the background to send "Router is ONLINE" immediately if boot lock is missing
+        if [ ! -f "/tmp/router_boot_notified" ]; then
+            /usr/bin/router_monitor.sh &
+        fi
     fi
 fi
 

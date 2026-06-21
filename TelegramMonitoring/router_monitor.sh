@@ -214,14 +214,13 @@ check_boot_and_heartbeat() {
         # Ensure time is synchronized (epoch greater than 1700000000)
         # OpenWrt might boot up with 1970 or a low build date until NTP syncs.
         if [ "$NOW" -gt 1700000000 ]; then
-            touch "$BOOT_LOCK"
             if [ -f "$HEARTBEAT_FILE" ]; then
                 LAST_SEEN=$(cat "$HEARTBEAT_FILE")
                 # Validate that LAST_SEEN is a valid number
                 if [ -n "$LAST_SEEN" ] && [ "$LAST_SEEN" -eq "$LAST_SEEN" ] 2>/dev/null; then
                     DIFF=$((NOW - LAST_SEEN))
-                    # Only notify if downtime is significant (e.g., > 120 seconds)
-                    if [ "$DIFF" -gt 120 ]; then
+                    # Only notify if downtime is significant (e.g., > 0 seconds)
+                    if [ "$DIFF" -gt 0 ]; then
                         HOURS=$(( DIFF / 3600 ))
                         MINUTES=$(( (DIFF % 3600) / 60 ))
                         SECONDS=$(( DIFF % 60 ))
@@ -235,11 +234,30 @@ check_boot_and_heartbeat() {
                         
                         if [ -n "$MSG_ROUTER_ONLINE" ]; then
                             MSG=$(safe_format "$MSG_ROUTER_ONLINE" "$DOWNTIME" "$LAST_SEEN_STR")
-                            /usr/bin/telegram_notify.sh "SYSTEM" "$MSG"
+                            logger -t "router_monitor" "Attempting to send boot recovery alert..."
+                            if /usr/bin/telegram_notify.sh "SYSTEM" "$MSG"; then
+                                logger -t "router_monitor" "Boot recovery alert sent successfully."
+                                touch "$BOOT_LOCK"
+                            else
+                                logger -t "router_monitor" "WARNING: Failed to send boot recovery alert. Will retry on next run."
+                            fi
+                        else
+                            touch "$BOOT_LOCK"
                         fi
+                    else
+                        logger -t "router_monitor" "Skipping boot recovery alert: downtime of ${DIFF}s is 0 or negative."
+                        touch "$BOOT_LOCK"
                     fi
+                else
+                    logger -t "router_monitor" "Skipping boot recovery alert: invalid last_seen timestamp in $HEARTBEAT_FILE."
+                    touch "$BOOT_LOCK"
                 fi
+            else
+                logger -t "router_monitor" "Skipping boot recovery alert: no heartbeat file found."
+                touch "$BOOT_LOCK"
             fi
+        else
+            logger -t "router_monitor" "Skipping boot recovery check: system time not synchronized yet ($NOW)."
         fi
     fi
 
