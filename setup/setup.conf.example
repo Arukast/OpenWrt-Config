@@ -57,26 +57,24 @@ ZRAM_ALGO="lzo-rle"
 # You can configure up to 4 distinct DoH resolvers. They act as automated backups
 # to one another. Below is a highly secure, privacy-respecting multi-provider setup:
 
-# Resolver 1: Quad9 (Primary - Swiss privacy, automatic malware/phishing blocking)
+# Resolver 1: Quad9 Primary (Swiss privacy, automatic malware/phishing blocking)
 DOH_1_BOOTSTRAP="9.9.9.9,149.112.112.112,2620:fe::fe,2620:fe::9"
 DOH_1_URL="https://dns.quad9.net/dns-query"
 DOH_1_PORT="5053"
 
-# Resolver 2: Cloudflare Security (Secondary - Ultra fast, automatic malware blocking)
-DOH_2_BOOTSTRAP="1.1.1.2,1.0.0.2,2606:4700:4700::1112,2606:4700:4700::1002"
-DOH_2_URL="https://security.cloudflare-dns.com/dns-query"
+# Resolver 2: Quad9 Secondary (Swiss privacy, automatic malware/phishing blocking)
+DOH_2_BOOTSTRAP="149.112.112.112,9.9.9.9,2620:fe::9,2620:fe::fe"
+DOH_2_URL="https://dns.quad9.net/dns-query"
 DOH_2_PORT="5054"
 
-# Resolver 3: AdGuard DNS (Tertiary - Dedicated ad/tracker/malware blocking)
-# To use NextDNS instead, change to your custom endpoint: https://dns.nextdns.io/YOUR_ID
-# NextDNS bootstrap: 45.90.28.0,45.90.30.0,2a07:a8c0::,2a07:a8c1::
-DOH_3_BOOTSTRAP="94.140.14.14,94.140.15.15,2a10:50c0::ad1:ff,2a10:50c0::ad2:ff"
-DOH_3_URL="https://dns.adguard-dns.com/dns-query"
+# Resolver 3: Quad9 Tertiary (Swiss privacy, automatic malware/phishing blocking)
+DOH_3_BOOTSTRAP="2620:fe::fe,2620:fe::9,9.9.9.9,149.112.112.112"
+DOH_3_URL="https://dns.quad9.net/dns-query"
 DOH_3_PORT="5055"
 
-# Resolver 4: Cloudflare Standard (Quaternary - Ultimate reliable speed fallback)
-DOH_4_BOOTSTRAP="1.1.1.1,1.0.0.1,2606:4700:4700::1111,2606:4700:4700::1001"
-DOH_4_URL="https://cloudflare-dns.com/dns-query"
+# Resolver 4: Quad9 Quaternary (Swiss privacy, automatic malware/phishing blocking)
+DOH_4_BOOTSTRAP="2620:fe::9,2620:fe::fe,149.112.112.112,9.9.9.9"
+DOH_4_URL="https://dns.quad9.net/dns-query"
 DOH_4_PORT="5056"
 
 IPV6_DNS_PRIMARY="2606:4700:4700::1111"          # Options: Any IPv6 DNS address
