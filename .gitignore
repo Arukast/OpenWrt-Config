@@ -10,3 +10,6 @@ docs/
 *.swo
 *~
 .DS_Store
+
+
+repomix-output.xml

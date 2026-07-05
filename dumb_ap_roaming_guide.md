@@ -1,0 +1,373 @@
+# OpenWrt Coordinated Dumb Access Point & Roaming Guide
+
+This guide provides a comprehensive, step-by-step walkthrough to configure a secondary OpenWrt router to act as a coordinated "Dumb Access Point" (Dumb AP) and seamless roaming node. 
+
+By following this guide, you will expand your network's physical footprint, reclaim unused physical ports, and enable clean, client-initiated fast roaming (802.11r/k/v) without IP conflicts or double-NAT bottlenecks.
+
+---
+
+## 1. Network Topology & Architectural Overview
+
+To create a single, unified network where devices roam seamlessly, the physical and logical placement of the secondary router is critical.
+
+### Physical Wiring: LAN-to-LAN (or Bridged WAN)
+The secondary router must connect from its **LAN port** (or a bridged WAN port) directly to a **LAN port on the primary router**, rather than connecting directly to the ISP gateway or upstream WAN.
+
+```
+       +-----------------+
+       |   ISP Gateway   |
+       +--------+--------+
+                | (WAN)
+       +--------v--------+
+       | Primary Router  | [IP: 192.168.11.1]
+       | (DHCP Server)   |
+       +--------+--------+
+                | (LAN Port)
+                |
+                | (LAN Port or Bridged WAN)
+       +--------v--------+
+       | Secondary AP    | [IP: 192.168.11.2]
+       |  (Dumb Access)  | (DHCP Disabled)
+       +-----------------+
+```
+
+### Why LAN-to-LAN connection is mandatory:
+* **Single Broadcast Domain (Layer 2 Flat Network):** Seamless Wi-Fi roaming requires that the client device retains its IP address when shifting between access points. If a client has to request a new IP address via DHCP or changes its subnet, active TCP connections, VPNs, and streaming services will instantly drop. Connecting LAN-to-LAN keeps all clients on the same Layer 2 network.
+* **Avoid Double-NAT & Subnet Segmentation:** Connecting the secondary router's WAN port (without bridging) forces it to create a second local subnet, perform Network Address Translation (NAT) again, and firewall local traffic. This isolates clients on the secondary router from local resources (like printers or NAS devices) connected to the primary router, while degrading gaming and peer-to-peer performance.
+
+---
+
+## 2. Interface Configuration & DHCP Disabling
+
+The secondary router must be configured to act as a transparent bridge, deferring all routing, IP allocation, and DNS resolution tasks to the primary router.
+
+### Step-by-Step Configuration (LuCI GUI)
+1. Disconnect the secondary router from the primary router and connect your computer directly to one of the secondary router's LAN ports.
+2. Open your browser, navigate to the secondary router's LuCI interface (typically `http://192.168.1.1`), and log in.
+3. Go to **Network ➔ Interfaces**.
+4. Click **Edit** next to the **LAN** interface:
+   * **Protocol:** Keep or change to **Static address**.
+   * **IPv4 address:** Choose a static IP within the primary router's subnet but *outside* its active DHCP range (e.g., if the primary is `192.168.11.1`, assign `192.168.11.2` to the secondary).
+   * **IPv4 netmask:** Match the primary subnet (usually `255.255.255.0`).
+   * **IPv4 gateway:** Set to the IP address of the primary router (e.g., `192.168.11.1`).
+   * **Use custom DNS servers:** Set to the IP address of the primary router (e.g., `192.168.11.1`).
+5. Scroll down to the **DHCP Server** settings tab for the LAN interface:
+   * Under **General Setup**: Check the box for **Ignore interface** (this completely disables the IPv4 DHCP server).
+   * Under **IPv6 Settings**: Set **Router Advertisement-Service**, **DHCPv6-Service**, and **NDP-Proxy** to **disabled**.
+6. Click **Save**.
+7. Go to **System ➔ Startup** and disable the `dnsmasq` and `odhcpd` services to guarantee they do not start or intercept traffic on boot. (Click **Disable** and **Stop** for both).
+8. Apply changes by clicking **Save & Apply**.
+
+> [!IMPORTANT]
+> Once you click **Save & Apply**, you will lose access to the secondary router. You must now physically connect the LAN port of the secondary router to the LAN port of the primary router. You can then access the secondary router's admin panel at its new static IP address (e.g., `http://192.168.11.2`).
+
+### Command Line Execution (UCI CLI)
+If you prefer configuring the interfaces over SSH, run this block on the secondary router:
+
+```bash
+# 1. Configure LAN static IP, Gateway, and DNS
+uci set network.lan.proto='static'
+uci set network.lan.ipaddr='192.168.11.2'
+uci set network.lan.netmask='255.255.255.0'
+uci set network.lan.gateway='192.168.11.1'
+uci add_list network.lan.dns='192.168.11.1'
+
+# 2. Disable IPv4 DHCP on LAN
+uci set dhcp.lan.ignore='1'
+
+# 3. Disable IPv6 DHCP & Router Advertisements
+uci set dhcp.lan.ra='disabled'
+uci set dhcp.lan.dhcpv6='disabled'
+uci set dhcp.lan.ndp='disabled'
+
+# 4. Commit changes
+uci commit
+/etc/init.d/network restart
+/etc/init.d/odhcpd disable
+/etc/init.d/odhcpd stop
+```
+
+> [!WARNING]
+> **If you lose access immediately after running the commands above:**
+> Because you disabled the secondary router's DHCP server, your computer can no longer automatically obtain an IP address from it. To regain access:
+> 1. **Connect the routers:** Connect a LAN port of the secondary router to a LAN port of the primary router.
+> 2. **Renew your PC IP:** Unplug and replug your computer's ethernet cable (or toggle your Wi-Fi) so it gets a fresh IP (in the `192.168.11.x` range) from the **primary** router.
+> 3. **Manual Static IP (Alternative):** If configuring the secondary router standalone, manually assign your computer a static IP of `192.168.11.50` with subnet mask `255.255.255.0` in your OS network settings to access `http://192.168.11.2`.
+
+---
+
+
+## 3. Port Optimization: Bridging WAN to LAN
+
+Because a Dumb AP does not perform WAN routing, the physical WAN port on the secondary router is wasted. We can reclaim this physical port and bridge it into the `br-lan` network interface to act as a regular LAN switch port.
+
+### Step-by-Step Configuration (LuCI GUI)
+1. Access the secondary router's web panel at its new static IP (e.g., `http://192.168.11.2`).
+2. Go to **Network ➔ Interfaces** and click the **Devices** tab at the top.
+3. Locate the bridge device named **`br-lan`** and click **Configure**.
+4. In the **Bridge ports** dropdown list, select your physical WAN interface (often listed as `wan`, `eth1`, `eth0.2`, or `ge0` depending on your router architecture) to add it to the bridge alongside the LAN ports.
+5. Click **Save**.
+6. Go back to the **Interfaces** tab:
+   * Select and **Delete** the unused **WAN** and **WAN6** interface profiles to avoid firewall zone conflicts.
+7. Click **Save & Apply**.
+
+### Command Line Execution (UCI CLI)
+Run these commands over SSH to bridge the WAN port and clean up unused WAN interfaces:
+
+```bash
+# 1. Identify the physical WAN interface name (typically 'wan' or 'eth1')
+# 2. Add the physical WAN interface to the br-lan bridge ports list
+uci add_list network.device.ports='wan'   # Adjust interface name if different
+
+# 3. Delete WAN interface configurations to prevent routing anomalies
+uci delete network.wan
+uci delete network.wan6
+
+# 4. Commit changes and restart network service
+uci commit network
+/etc/init.d/network restart
+```
+
+---
+
+## 4. Codebase Script Execution (Isolated Packages Subsystem)
+
+To ensure smooth client steering and roam handoffs, we must replace the default basic WPAD package with the full `wpad-openssl` driver package and install `usteer` (the band steering daemon). 
+
+We can leverage the repository's setup script located at [OpenWrtSetup.sh](file://./setup/OpenWrtSetup.sh). We will run it with the target module flag `--module packages` to install only the packages and avoid executing the full script (which would otherwise overwrite our hand-configured network, firewall, and DHCP settings).
+
+### Step-by-Step Setup:
+1. Ensure the secondary router is connected to the primary router and has active internet access.
+2. Edit `setup/setup.conf` to ensure `ENABLE_USTEER=1` is active.
+3. Transfer the `/setup` folder from this repository to the secondary router's `/tmp` directory using SCP or SFTP:
+   ```bash
+   scp -O -r setup root@192.168.11.2:/tmp/
+   ```
+4. SSH into the secondary router:
+   ```bash
+   ssh root@192.168.11.2
+   ```
+5. Run the setup script using the packages module flag:
+   ```bash
+   sh /tmp/setup/OpenWrtSetup.sh --module packages --no-reboot --config /tmp/setup/setup.conf
+   ```
+
+> [!WARNING]
+> **CRITICAL VERIFICATION:** 
+> When the packages module runs, it will uninstall the pre-installed basic Wi-Fi driver (`wpad-basic-mbedtls` or `wpad-mini`). 
+> 
+> If your router loses internet during this step or the installation of `wpad-openssl` fails, your router will be left with **no Wi-Fi encryption daemon (hostapd/wpad)**. Consequently, your Wi-Fi radios will refuse to start on reboot (showing "Wireless is not associated" or staying completely down).
+> 
+> **How to verify and recover:**
+> Make sure `wpad-openssl` installed successfully. If it failed, verify your internet connection on the AP and run:
+> ```bash
+> apk update && apk add wpad-openssl usteer luci-app-usteer
+> # (Or use opkg if running an older OpenWrt version)
+> ```
+
+
+### Why we isolate with `--module packages`:
+Using `--module packages` calls `setup_packages` inside [03_packages.sh](file://./setup/03_packages.sh) which does the following:
+* Runs `apk update` safely.
+* Uninstalls restrictive `wpad-basic` packages.
+* Installs `wpad-openssl`, `usteer`, and `luci-app-usteer`.
+* **Critically, it bypasses** `setup_network`, `setup_dns`, and `setup_firewall` modules which would otherwise re-enable routing, firewall rules, and DHCP services, destroying your Dumb AP architecture.
+
+---
+
+## 5. Wireless Coordination & Fast Roaming (802.11r/k/v)
+
+With the required software installed, we must coordinate the wireless configuration across both the primary router and the secondary Dumb AP.
+
+### 5.1 Wireless Settings Match-up
+For roaming to work seamlessly, both routers must broadcast the exact same network parameters:
+* **SSID:** Must be identical (e.g., `Home_Wi-Fi`).
+* **Security Protocol:** Must be identical (e.g., `WPA2-PSK` or `WPA3-SAE`).
+* **Encryption / Cipher:** Must be identical (e.g., `CCMP (AES)`).
+* **Wi-Fi Password / Pre-shared Key:** Must be identical.
+
+### 5.2 802.11r Fast Roaming Configuration
+Configure the following parameters in **Network ➔ Wireless** under each SSID interface edit panel, on both the **Primary** and **Secondary** routers:
+
+| Parameter | Configuration | Purpose |
+| :--- | :--- | :--- |
+| **802.11r Fast Transition** | **Enabled** (Checked) | Authorizes fast client handoffs between APs. |
+| **Fast Transition over DS** | **Disabled** (Unchecked) | Over-the-air FT is significantly more compatible with iOS, Android, and IoT. |
+| **Mobility Domain** | Identical 4-digit hex (e.g., `abcd`) | Groups these APs into the same roaming domain. |
+| **802.11k (RRM)** | **Enabled** (Checked) | Provides client devices with neighbor reports, speeding up scan times. |
+| **802.11v (BSS Transition)** | **Enabled** (Checked) | Allows the APs to suggest and steer clients to a better node. |
+| **DTIM Period** | Set to **`3`** | Minimizes power drain for sleeping client devices (standard for Apple/Android). |
+| **Disassociate on Low Acknowledgement** | **Disabled** (Unchecked) | Prevents the AP from abruptly kicking clients during brief signal fades, letting them roam gracefully. |
+
+#### Command Line Execution (UCI CLI)
+If you prefer applying these wireless roaming optimizations across all active AP interfaces at once via SSH, run the following block on **both** routers:
+
+```bash
+# Loop through and enable 802.11k/v/r and DTIM settings for all AP interfaces
+for iface in $(uci show wireless | grep "=wifi-iface" | awk -F'.' '{print $2}'); do
+    if [ "$(uci -q get wireless.$iface.mode)" = "ap" ]; then
+        echo "Applying roaming optimizations to interface: $iface"
+        uci set wireless.$iface.ieee80211k='1'
+        uci set wireless.$iface.ieee80211v='1'
+        uci set wireless.$iface.ieee80211r='1'
+        uci set wireless.$iface.ft_over_ds='0'
+        uci set wireless.$iface.ft_psk_generate_local='1'
+        uci set wireless.$iface.mobility_domain='1234'      # Match this exact domain on both routers!
+        uci set wireless.$iface.dtim_period='3'
+        uci set wireless.$iface.disassoc_low_ack='0'
+    fi
+done
+
+uci commit wireless
+wifi reload
+```
+*(Ensure the `mobility_domain` value matches between your primary and secondary routers).*
+
+---
+
+### 5.3 Non-Overlapping Channel & Power Strategy
+To prevent radio interference and address the "sticky client" problem (where a client remains connected to a weak, distant AP), implement a localized channel map and tune transmit powers.
+
+```
+       [ 2nd Floor AP ] <--- 5Ghz: Ch 36 (HE80) --- [ Low Tx Power: 14dBm ]
+              |
+      (Interference Zone)
+              |
+       [ 1st Floor AP ] <--- 5Ghz: Ch 149 (HE80) -- [ Med Tx Power: 18dBm ]
+```
+
+1. **Non-Overlapping Channels:**
+   * **2.4 GHz Band:** Select only from channels **`1`**, **`6`**, or **`11`**. For example, assign Channel `1` to the primary router and Channel `6` or `11` to the secondary router.
+   * **5 GHz Band:** Ensure channels do not overlap. If using 80 MHz channel widths, use non-overlapping blocks (e.g., Primary on Channel `36` and Secondary on Channel `149`).
+2. **Transmit Power Optimization:**
+   * Do not set wireless transmit power to "Auto" or "Maximum".
+   * A client device will stay connected to a distant AP if its signal remains loud, even if a closer AP is available.
+   * Set **2.4 GHz** transmit power to **Low/Medium** (between `12 dBm` and `15 dBm`).
+   * Set **5 GHz** transmit power to **Medium/High** (between `17 dBm` and `20 dBm`).
+   * Keeping 5 GHz slightly louder encourages clients to select the high-throughput 5 GHz band over 2.4 GHz.
+
+---
+
+## 6. Advanced Tuning & Performance Optimizations (Highly Recommended)
+
+Since we bypassed the full setup installation to protect the bridge settings, we missed several premium performance tunings. You should apply these manually over SSH to maximize your secondary router's CPU efficiency, memory usage, and bridging speed.
+
+### 6.1 Multi-Core CPU & Network Acceleration
+By default, OpenWrt processes network traffic on a single CPU core. We can enable Packet Steering (RPS) to distribute load across all available CPU cores, and disable local IPv6 ULA generation which would otherwise conflict with the primary router:
+
+```bash
+# 1. Enable Packet Steering (RPS) across all CPU cores
+uci set network.globals.packet_steering='2'
+
+# 2. Delete IPv6 ULA-Prefix to prevent client routing confusion
+uci -q delete network.globals.ula_prefix
+
+# 3. Disable IPv6 on LAN if IPv6 was toggled off (Optional)
+# uci set network.lan.ipv6='0'
+
+uci commit network
+/etc/init.d/network restart
+```
+
+### 6.2 Bridge Fast Forwarding (Bypass Firewall on Bridged Packets)
+Linux bridges pass packet traffic through iptables firewall rules by default if the bridge netfilter module is active. Because the Dumb AP does not perform routing or firewalling between devices, we can disable this.
+
+*Note: If you get "unknown key" errors when running this, it simply means the `kmod-br-netfilter` package is not loaded or installed. In that case, bridge filtering is already disabled by default (which is the optimal setting), and you can safely ignore the error.*
+
+```bash
+# Load the bridge netfilter module if installed, then disable packet filtering
+modprobe br_netfilter 2>/dev/null || true
+
+cat > /etc/sysctl.d/99-bridge-performance.conf << 'SYSCTL'
+net.bridge.bridge-nf-call-arptables=0
+net.bridge.bridge-nf-call-ip6tables=0
+net.bridge.bridge-nf-call-iptables=0
+SYSCTL
+
+# Reload sysctl parameters (ignore errors if keys are unknown)
+sysctl -p /etc/sysctl.d/99-bridge-performance.conf 2>/dev/null || true
+```
+
+### 6.3 Coordinated Band Steering (Usteer Network-Wide Mode)
+
+Rather than operating independently, Usteer on the secondary router should coordinate with Usteer on the primary router over the LAN to smoothly transition clients. Below is the optimized production-grade configuration that maximizes steering response while preventing drops for weak clients.
+
+> [!IMPORTANT]
+> **SSID List Filtering:** It is highly recommended to add your roaming SSID to the `ssid_list` parameter. This prevents Usteer from attempting to steer single-band static IoT devices (which often triggers connection failures on those devices).
+
+```bash
+# 1. Clear out factory defaults and initialize a single clean anonymous section
+# (This prevents duplicate config blocks and keeps the LuCI Web GUI in sync)
+cat <<EOF > /etc/config/usteer
+config usteer
+EOF
+
+# 2. Base network & multi-node configuration
+uci set usteer.@usteer[0].network='lan'
+uci set usteer.@usteer[0].local_mode='0'          # Coordinate network-wide between APs
+uci set usteer.@usteer[0].ipv6='0'                # Use IPv4 for node-to-node exchange
+uci set usteer.@usteer[0].syslog='1'              # Log steering events
+
+# 3. Association & Probe steering filters
+uci set usteer.@usteer[0].probe_steering='1'      # Ignore probes from weak clients to let better APs answer
+uci set usteer.@usteer[0].assoc_steering='1'      # Block association requests if a better AP/band is found
+uci set usteer.@usteer[0].min_connect_snr='-80'   # Reject associations if signal < -80 dBm (prevents weak edge joins)
+
+# 4. Roaming signal thresholds (measured in absolute dBm)
+uci set usteer.@usteer[0].min_snr='-85'           # Mark clients as steering candidates if signal falls below -85 dBm
+uci set usteer.@usteer[0].min_snr_kick_delay='5000' # Wait 5 seconds before kicking low-signal clients to avoid transient drops
+uci set usteer.@usteer[0].signal_diff_threshold='6' # Only steer if alternative AP has a +6dB signal advantage
+
+# 5. Band steering parameters (preferred 5GHz steering)
+uci set usteer.@usteer[0].band_steering_interval='10000' # Check every 10s to move 2.4GHz clients to 5GHz
+uci set usteer.@usteer[0].band_steering_min_snr='-68'    # Only steer to 5GHz if target signal is at least -68 dBm
+
+# 6. 802.11v BSS Transition Management (BTM) trigger parameters
+uci set usteer.@usteer[0].roam_scan_snr='-72'     # Request link scans when client signal falls below -72 dBm
+uci set usteer.@usteer[0].roam_trigger_snr='-76'  # Send 802.11v BTM roam request when client signal falls below -76 dBm
+uci set usteer.@usteer[0].roam_kick_delay='10000' # Kick the client after 10s if it ignores the BTM roam request
+
+# 7. SSID Filter (Enable ONLY for your roaming SSID, e.g., 'Home_Wi-Fi')
+# Replace 'Home_Wi-Fi' with your unified roaming SSID.
+uci -q delete usteer.@usteer[0].ssid_list
+uci add_list usteer.@usteer[0].ssid_list='Home_Wi-Fi'
+
+uci commit usteer
+/etc/init.d/usteer restart
+```
+*(Apply this exact same configuration block on your primary router as well to ensure matching steering parameters across the whole network)*.
+
+
+
+
+### 6.4 Safe LAN Watchdog & System Services Clean-up
+Disable unneeded system services to free up RAM, set NTP to client-only mode, reduce serial log verbosity to conserve CPU, and configure Watchcat to reboot the network stack only if it loses connectivity to the **primary router** (`192.168.11.1`):
+
+```bash
+# 1. Disable unused routing/firewall services to free up RAM
+for svc in firewall dnsmasq odhcpd; do
+    /etc/init.d/$svc stop 2>/dev/null
+    /etc/init.d/$svc disable 2>/dev/null
+done
+
+# 2. Align system logging levels and NTP client mode
+uci set system.@system[0].conloglevel='8'
+uci set system.@system[0].cronloglevel='9'
+uci set system.ntp.enabled='1'
+uci set system.ntp.enable_server='0'
+uci commit system
+/etc/init.d/system restart
+
+# 3. Setup a LAN watchdog (Monitor connection to primary router)
+uci -q delete system.@watchcat[0]
+uci add system watchcat
+uci set system.@watchcat[-1].mode='restart_iface'
+uci set system.@watchcat[-1].interface='lan'
+uci set system.@watchcat[-1].pinghosts='192.168.11.1'
+uci set system.@watchcat[-1].addressfamily='ipv4'
+uci set system.@watchcat[-1].pingperiod='60'
+uci set system.@watchcat[-1].period='5m'
+uci commit system
+/etc/init.d/system restart
+```
+
