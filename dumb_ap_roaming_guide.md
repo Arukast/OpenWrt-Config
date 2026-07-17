@@ -431,3 +431,56 @@ To resolve client hostnames on your Dumb AP, you can automate copying the active
    > [!NOTE]
    > Because `/tmp` is a temporary RAM disk (`tmpfs`), `/tmp/dhcp.leases` is cleared whenever the Dumb AP reboots. Hostnames will not display immediately after a boot until the cron job runs at the next 5-minute interval. You can run the `scp` sync command manually once after a reboot to populate them immediately, or add it to `/etc/rc.local` to sync immediately on startup.
 
+
+---
+
+## 8. Coordinated Telegram Monitoring (Dumb AP to Primary Router Alerts)
+
+Since Telegram monitoring (which requires `curl` and direct internet connection) is best kept on the **Primary Router**, we use a coordinated **SSH forwarding** architecture to monitor the Dumb AP.
+
+The Dumb AP runs lightweight resource and security scripts locally. When an alert triggers, the Dumb AP executes a lightweight forwarding wrapper that SSHs into the primary router to deliver the Telegram notification. This ensures 100% monitoring feature-parity (CPU, RAM, storage, Wi-Fi status, SSH/LuCI logins, and brute-force events) with zero direct internet access or heavy package dependencies on the AP.
+
+### 8.1 Automated Installation
+
+The Telegram Monitoring installer has been updated to automatically configure everything if it detects a Dumb AP architecture:
+
+1. **Transfer the Telegram Monitoring directory to the Dumb AP:**
+   ```bash
+   scp -O -r TelegramMonitoring root@192.168.11.2:/tmp/
+   ```
+
+2. **SSH into the Dumb AP and run the installer:**
+   ```bash
+   ssh root@192.168.11.2
+   sh /tmp/TelegramMonitoring/install.sh
+   ```
+
+   The installer will automatically:
+   * Detect that the Dumb AP has DHCP disabled and a LAN gateway.
+   * Generate the SSH keypair at `/root/.ssh/id_ed25519` (if it does not exist yet).
+   * Install the lightweight forwarding wrapper as `/usr/bin/telegram_notify.sh`.
+   * Add the DHCP Lease Synchronization cron job to crontab.
+   * Add the resource monitor `dumb_ap_monitor.sh` (which alerts on high CPU, low RAM, low storage, and Wi-Fi interface crashes) to crontab.
+   * Install the `auth_monitor.sh` background service to watch for LuCI/SSH brute-force logins, and enable real-time SSH login notifications in `/etc/profile.d/99-ssh-notify.sh`.
+
+3. **Authorize the SSH public key on the Primary Router:**
+   At the end of the installation, the script will output the Dumb AP's public key. Copy that string, log into the **Primary Router**, and add it:
+   ```bash
+   echo "YOUR_DUMB_AP_PUBLIC_KEY_STRING_HERE" >> /etc/dropbear/authorized_keys
+   chmod 600 /etc/dropbear/authorized_keys
+   ```
+   *(This step is identical to Section 7 step 3. If you have already authorized this key for lease syncing, you can skip this step).*
+
+### 8.2 Manual Verification
+
+1. **Verify SSH Forwarding Notification:**
+   Run this command on the Dumb AP to trigger a test alert. It should successfully execute through the primary router and send a Telegram alert:
+   ```bash
+   /usr/bin/telegram_notify.sh "SYSTEM" "Test notification from Dumb AP!"
+   ```
+   The Telegram message received will automatically be prefixed with the Dumb AP's hostname, for example:
+   `[2026-07-17 14:58:00] [DumbAP] Test notification from Dumb AP!`
+
+2. **Verify Security Logins:**
+   Try logging into the Dumb AP via SSH in a new terminal window. You should instantly receive a Telegram notification showing the login user and IP address.
+```
