@@ -19,6 +19,11 @@ CRON
             if echo "$_sha  /tmp/abl-install.sh" | sha256sum -c >/dev/null 2>&1; then
                 log_info "SHA256 verified successfully. Installing..."
                 sh /tmp/abl-install.sh -v release
+                if [ -f /etc/adblock-lean/config ]; then
+                    log_info "Increasing max_blocklist_file_size_KB and max_file_part_size_KB in config..."
+                    sed -i 's/max_blocklist_file_size_KB=.*/max_blocklist_file_size_KB="40000"/' /etc/adblock-lean/config
+                    sed -i 's/max_file_part_size_KB=.*/max_file_part_size_KB="40000"/' /etc/adblock-lean/config
+                fi
             else
                 log_error "SHA256 verification FAILED for adblock-lean installer! Skipping installation."
             fi

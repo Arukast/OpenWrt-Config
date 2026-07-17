@@ -19,7 +19,7 @@ This guide compiles all the premium wireless optimizations configured for a dual
 | **Channel Selection** | Cleanest channel of `1`, `6`, or `11` | Non-DFS channel (e.g. `36`, `40`, `44`, `48`) | Fixed low non-DFS channels to avoid compatibility issues and radar scan drops. |
 | **Transmit Power** | Max legal power (e.g. `20 dBm`) | Max legal power (e.g. `23 dBm`) | Balanced maximum allowed power levels to extend the high-speed boundaries. |
 | **DTIM Period** | `3` | `3` | Apple/Android/Microsoft standard. Saves standby battery; prevents dropouts. |
-| **Roaming Suite** | `802.11r / k / v` | `802.11r / k / v` | Fast transition and network mapping for smooth handoffs. |
+| **Roaming Suite** | `802.11k / v` | `802.11k / v` | Network mapping and band steering without 802.11r handshake bugs. |
 | **Steering Daemon** | `Usteer` | `Usteer` | Actively shifts sticky clients to the best band in real-time. |
 
 ---
@@ -57,15 +57,13 @@ By default, OpenWrt comes with a basic driver package that strips out RRM (802.1
 ### Step 3: Configure WLAN Roaming (SSID Interfaces)
 For **both** the 2.4 GHz and 5 GHz SSID AP interfaces, click **Edit** under the SSID settings, navigate to the **WLAN Roaming** tab, and configure as follows:
 
-1. **802.11r Fast Transition:** Check **Enable**.
-2. **Fast Transition over DS:** Uncheck / Disable. *(Using FT Over-the-Air is far more compatible with older devices)*.
-3. **Mobility Domain:** Type a 4-digit hex ID (e.g. **`1234`** or **`abcd`**). *Note: This domain ID must be identical on both bands.*
-4. **Radio Resource Measurement (RRM / 802.11k):** Check **Enable**.
-5. **BSS Transition Management (BTM / 802.11v):** Check **Enable**.
-6. Under the **Advanced Settings** tab:
+1. **802.11r Fast Transition:** **Disable (Uncheck)**. *(Highly recommended to keep disabled on WPA2/WPA3 mixed-mode networks, as it causes handshake failures and "No Internet" issues on modern mobile devices during band switching).*
+2. **Radio Resource Measurement (RRM / 802.11k):** Check **Enable**.
+3. **BSS Transition Management (BTM / 802.11v):** Check **Enable**.
+4. Under the **Advanced Settings** tab:
    *   **DTIM Period:** Set to **`3`** (instead of standard `2`).
    *   **Disassociate on Low Acknowledgement:** Uncheck / Disable *(stops older devices from dropping when sleeping)*.
-7. Click **Save** for both interfaces, then click **Save & Apply** at the top right.
+5. Click **Save** for both interfaces, then click **Save & Apply** at the top right.
 
 ---
 
@@ -76,13 +74,14 @@ Usteer is your micro-steering manager that prevents sticky connections.
 2. Scroll to the **Settings** section and apply:
    *   **Network:** `lan` (Bridge: "br-lan").
    *   **Local mode:** **Check to Enable (`true`)**. *(Tells Usteer that this is a single AP and to run steering decisions locally).*
+   *   **Association steering:** **Uncheck / Disable (`false`)**. *(Crucial: allows devices to connect without being aggressively blocked by the router, preventing "No Internet" loops during band steering).*
    *   **Log messages to syslog:** **Check to Enable (`true`)**.
    *   **IPv6 mode:** **Keep Disabled (`false`)**.
 3. Click **Save & Apply**.
 
 ---
 
-## ⚡ Instant Replication via Command Line (SSH)
+## 📋 Instant Replication via Command Line (SSH)
 If you ever factory-reset your router or want to replicate this entire setup in less than 30 seconds, log in via SSH and run this unified command block:
 
 ```bash
@@ -100,25 +99,23 @@ uci set wireless.radio1.channel='44'
 uci set wireless.radio1.htmode='VHT40'
 uci set wireless.radio1.txpower='23'
 
-# 3. Configure WLAN Roaming (RRM, BTM, 802.11r) for all AP interfaces
+# 3. Configure WLAN Roaming (RRM, BTM) for all AP interfaces
 for iface in $(uci show wireless | grep "mode='ap'" | awk -F'.' '{print $2}' | sort -u); do
     uci set wireless.${iface}.dtim_period='3'
     uci set wireless.${iface}.disassoc_low_ack='0'
-    uci set wireless.${iface}.ieee80211r='1'
-    uci set wireless.${iface}.ft_over_ds='0'
-    uci set wireless.${iface}.ft_psk_generate_local='1'
-    uci set wireless.${iface}.mobility_domain='1234'
-    uci set wireless.${iface}.rrm='1'
+    uci set wireless.${iface}.ieee80211r='0'
+    uci set wireless.${iface}.ieee80211k='1'
     uci set wireless.${iface}.rrm_beacon_report='1'
     uci set wireless.${iface}.rrm_neighbor_report='1'
     uci set wireless.${iface}.bss_transition='1'
 done
 
-# 4. Configure Usteer Local Mode
+# 4. Configure Usteer Local Mode with relaxed Association Steering
 uci set usteer.global.network='lan'
 uci set usteer.global.local_mode='1'
 uci set usteer.global.ipv6='0'
 uci set usteer.global.syslog='1'
+uci set usteer.global.assoc_steering='0'
 
 # Save and restart services
 uci commit wireless

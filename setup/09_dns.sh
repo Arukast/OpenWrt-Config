@@ -50,9 +50,15 @@ setup_dns() {
     fi
 
     if [ "$ENABLE_IPV6" = "1" ]; then
-        run_uci set dhcp.lan.dhcpv6='relay'
-        run_uci set dhcp.lan.ra='relay'
-        run_uci set dhcp.lan.ndp='relay'
+        if [ "$CONNECTION_MODE" = "WISP" ]; then
+            run_uci set dhcp.lan.dhcpv6='relay'
+            run_uci set dhcp.lan.ra='relay'
+            run_uci set dhcp.lan.ndp='relay'
+        else
+            run_uci set dhcp.lan.dhcpv6='hybrid'
+            run_uci set dhcp.lan.ra='hybrid'
+            run_uci set dhcp.lan.ndp='hybrid'
+        fi
         
         # Point clients to the router's stable Unique Local Address to ensure queries go through Dnsmasq (DoH + Adblock)
         run_uci -q delete dhcp.lan.dns || true
@@ -61,10 +67,17 @@ setup_dns() {
         run_uci -q delete dhcp.${_wan6_if} || true
         run_uci set dhcp.${_wan6_if}='dhcp'
         run_uci set dhcp.${_wan6_if}.interface="${_wan6_if}"
-        run_uci set dhcp.${_wan6_if}.dhcpv6='relay'
-        run_uci set dhcp.${_wan6_if}.ra='relay'
-        run_uci set dhcp.${_wan6_if}.ndp='relay'
-        run_uci set dhcp.${_wan6_if}.master='1'
+        if [ "$CONNECTION_MODE" = "WISP" ]; then
+            run_uci set dhcp.${_wan6_if}.dhcpv6='relay'
+            run_uci set dhcp.${_wan6_if}.ra='relay'
+            run_uci set dhcp.${_wan6_if}.ndp='relay'
+            run_uci set dhcp.${_wan6_if}.master='1'
+        else
+            run_uci set dhcp.${_wan6_if}.dhcpv6='hybrid'
+            run_uci set dhcp.${_wan6_if}.ra='hybrid'
+            run_uci set dhcp.${_wan6_if}.ndp='hybrid'
+            run_uci set dhcp.${_wan6_if}.master='1'
+        fi
         
         if [ "$CONNECTION_MODE" = "WISP" ]; then
             run_uci -q delete dhcp.wan6 || true

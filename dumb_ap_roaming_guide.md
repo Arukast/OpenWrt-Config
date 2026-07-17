@@ -186,14 +186,18 @@ For roaming to work seamlessly, both routers must broadcast the exact same netwo
 * **Encryption / Cipher:** Must be identical (e.g., `CCMP (AES)`).
 * **Wi-Fi Password / Pre-shared Key:** Must be identical.
 
-### 5.2 802.11r Fast Roaming Configuration
+### 5.2 Roaming Protocol Configuration (802.11k/v/r)
 Configure the following parameters in **Network ➔ Wireless** under each SSID interface edit panel, on both the **Primary** and **Secondary** routers:
+
+> [!WARNING]
+> **WPA3-SAE / Mixed Mode Compatibility Note:**
+> If your Wi-Fi is configured with **sae-mixed** (WPA2/WPA3 Mixed) or pure **WPA3-SAE** encryption, keeping **802.11r Fast Transition enabled** with local PSK generation can cause handshake failures. Mobile clients (such as iPhones and Android devices) may show "Connected, No Internet" or lose internet when transitioning between bands (2.4GHz/5GHz) or APs.
+> 
+> For the highest compatibility and stability, **disable 802.11r Fast Transition**. Standard roaming steering via 802.11k/v is more than enough for home networks.
 
 | Parameter | Configuration | Purpose |
 | :--- | :--- | :--- |
-| **802.11r Fast Transition** | **Enabled** (Checked) | Authorizes fast client handoffs between APs. |
-| **Fast Transition over DS** | **Disabled** (Unchecked) | Over-the-air FT is significantly more compatible with iOS, Android, and IoT. |
-| **Mobility Domain** | Identical 4-digit hex (e.g., `abcd`) | Groups these APs into the same roaming domain. |
+| **802.11r Fast Transition** | **Disabled** (Unchecked) | Keep disabled unless running pure WPA2-PSK and needing sub-100ms roams. |
 | **802.11k (RRM)** | **Enabled** (Checked) | Provides client devices with neighbor reports, speeding up scan times. |
 | **802.11v (BSS Transition)** | **Enabled** (Checked) | Allows the APs to suggest and steer clients to a better node. |
 | **DTIM Period** | Set to **`3`** | Minimizes power drain for sleeping client devices (standard for Apple/Android). |
@@ -203,16 +207,13 @@ Configure the following parameters in **Network ➔ Wireless** under each SSID i
 If you prefer applying these wireless roaming optimizations across all active AP interfaces at once via SSH, run the following block on **both** routers:
 
 ```bash
-# Loop through and enable 802.11k/v/r and DTIM settings for all AP interfaces
+# Loop through and enable 802.11k/v and DTIM settings for all AP interfaces (disabling 802.11r)
 for iface in $(uci show wireless | grep "=wifi-iface" | awk -F'.' '{print $2}'); do
     if [ "$(uci -q get wireless.$iface.mode)" = "ap" ]; then
         echo "Applying roaming optimizations to interface: $iface"
         uci set wireless.$iface.ieee80211k='1'
         uci set wireless.$iface.ieee80211v='1'
-        uci set wireless.$iface.ieee80211r='1'
-        uci set wireless.$iface.ft_over_ds='0'
-        uci set wireless.$iface.ft_psk_generate_local='1'
-        uci set wireless.$iface.mobility_domain='1234'      # Match this exact domain on both routers!
+        uci set wireless.$iface.ieee80211r='0'
         uci set wireless.$iface.dtim_period='3'
         uci set wireless.$iface.disassoc_low_ack='0'
     fi
@@ -221,7 +222,6 @@ done
 uci commit wireless
 wifi reload
 ```
-*(Ensure the `mobility_domain` value matches between your primary and secondary routers).*
 
 ---
 
@@ -310,7 +310,7 @@ uci set usteer.@usteer[0].syslog='1'              # Log steering events
 
 # 3. Association & Probe steering filters
 uci set usteer.@usteer[0].probe_steering='1'      # Ignore probes from weak clients to let better APs answer
-uci set usteer.@usteer[0].assoc_steering='1'      # Block association requests if a better AP/band is found
+uci set usteer.@usteer[0].assoc_steering='0'      # Disable association steering to prevent "no internet" loops during band/AP steering
 uci set usteer.@usteer[0].min_connect_snr='-80'   # Reject associations if signal < -80 dBm (prevents weak edge joins)
 
 # 4. Roaming signal thresholds (measured in absolute dBm)
@@ -371,3 +371,51 @@ uci commit system
 /etc/init.d/system restart
 ```
 
+
+## 7. Client Hostname Syncing (Dumb AP LuCI Fix)
+
+Because a Dumb AP has its DHCP server (`dnsmasq` / `odhcpd`) disabled, it has no local leases file (`/tmp/dhcp.leases`). Consequently, the **Associated Stations** table in the Dumb AP's LuCI web interface will display IP addresses (from the local ARP cache) or `?` instead of readable client hostnames.
+
+To resolve client hostnames on your Dumb AP, you can automate copying the active DHCP leases database from your primary router (which actually assigns the IPs and hostnames) to the Dumb AP.
+
+### Step-by-Step Setup:
+
+1. **Create the SSH directory on the Dumb AP:**
+   ```bash
+   mkdir -p /root/.ssh
+   chmod 700 /root/.ssh
+   ```
+
+2. **Generate an SSH keypair on the Dumb AP:**
+   ```bash
+   ssh-keygen -t ed25519 -N "" -f /root/.ssh/id_ed25519
+   chmod 600 /root/.ssh/id_ed25519
+   ```
+
+3. **Install the public key onto the Primary Router:**
+   Print the public key on the Dumb AP:
+   ```bash
+   cat /root/.ssh/id_ed25519.pub
+   ```
+   Copy this output string, log into the **Primary Router**, and append it to the trusted SSH keys file:
+   ```bash
+   echo "YOUR_PUBLIC_KEY_STRING_HERE" >> /etc/dropbear/authorized_keys
+   chmod 600 /etc/dropbear/authorized_keys
+   ```
+   *(Alternatively, paste it into the primary router's LuCI under **System ➔ Administration ➔ SSH-Keys**).*
+
+4. **Verify passwordless login from the Dumb AP:**
+   On the Dumb AP, run the following to test connectivity (replace `192.168.11.1` with your primary router's IP):
+   ```bash
+   ssh -i /root/.ssh/id_ed25519 root@192.168.11.1 "echo Connection Successful"
+   ```
+   If it prints `Connection Successful` without prompting for a password, your key setup is correct.
+
+5. **Schedule the Lease Sync via Cron:**
+   Open the cron editor on the Dumb AP (run `crontab -e` or go to **System ➔ Scheduled Tasks** in LuCI) and add the following entry to sync the file every 5 minutes:
+   ```cron
+   */5 * * * * scp -i /root/.ssh/id_ed25519 -o StrictHostKeyChecking=no root@192.168.11.1:/tmp/dhcp.leases /tmp/dhcp.leases
+   ```
+
+6. **Verify the Sync:**
+   After the cron job runs (or after running the `scp` command manually once), the Associated Stations list in the Dumb AP's LuCI interface will resolve and display client hostnames instead of raw IP addresses or `?`.

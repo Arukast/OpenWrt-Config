@@ -31,11 +31,8 @@ setup_wireless() {
                 run_uci set wireless.${iface}.encryption='sae-mixed'
                 run_uci set wireless.${iface}.key="$WIFI_KEY"
                 
-                # Enable 802.11r Fast Transition for seamless roaming between 2.4GHz & 5GHz
-                run_uci set wireless.${iface}.ieee80211r='1'
-                run_uci set wireless.${iface}.ft_over_ds='0'  # Disable over DS (uses over-the-air) for better client compatibility
-                run_uci set wireless.${iface}.ft_psk_generate_local='1'
-                run_uci set wireless.${iface}.mobility_domain='1234'
+                # Disable 802.11r Fast Transition by default due to sae-mixed (WPA3) compatibility issues with mobile clients
+                run_uci set wireless.${iface}.ieee80211r='0'
                 
                 # Enable 802.11k (RRM) & 802.11v (BTM) to support Usteer band steering
                 run_uci set wireless.${iface}.ieee80211k='1'
@@ -71,6 +68,7 @@ setup_usteer() {
     run_uci set usteer.global.local_mode='1'
     run_uci set usteer.global.ipv6='0'
     run_uci set usteer.global.syslog='1'
+    run_uci set usteer.global.assoc_steering='0'  # Disable association steering to prevent connection drops on band steering
     run_uci commit usteer
     log_ok "Usteer config committed."
 }

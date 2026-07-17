@@ -117,7 +117,36 @@ To get real-time Telegram alerts and keep an automated log in Google Sheets, you
 
 - **"Operation not permitted" (wget/curl/apk)**: Your router's clock is out of sync, causing SSL verification to fail. The setup script attempts to fix this automatically using `ntpd`.
 - **Subnet Conflict**: If your upstream WISP network uses `192.168.1.x`, ensure your router's LAN IP is changed (e.g., to `192.168.11.1`) to avoid routing loops.
+- **Double-NAT / Static WAN & DMZ Setup**: If your OpenWrt router is your primary home router but sits behind an ISP router (Double-NAT):
+  1. **Select a Static IP**: Choose a static IP for the OpenWrt WAN interface (e.g., `192.168.1.2`) that is outside the ISP router's DHCP pool range (e.g., if the ISP router DHCP pool starts at `.50`, values from `.2` to `.49` are safe).
+  2. **Free up the IP**: If a device is currently using your target IP, disconnect OpenWrt, restart the ISP router, and reconnect/restart the conflicting device so it gets forced into the new DHCP pool range (e.g., `.50+`).
+  3. **Configure WAN in OpenWrt**: 
+     - Go to **Network** -> **Interfaces**.
+     - Edit **WAN**, change protocol to **Static address**, and click **Switch protocol**.
+     - Set **IPv4 address** to your chosen static IP (e.g., `192.168.1.2`).
+     - Set **IPv4 netmask** to `255.255.255.0` and **IPv4 gateway** to the ISP router's IP (e.g., `192.168.1.1`).
+     - Set **Use custom DNS servers** to the ISP router's IP or public DNS (e.g., `1.1.1.1`).
+     - Save and apply.
+     > [!NOTE]
+     > Even if using DNS over HTTPS (DoH) on OpenWrt, you should still configure custom WAN DNS servers. They act as bootstrap DNS resolvers so the DoH client can look up DoH endpoints upon boot, and provide a backup fallback if the DoH service fails.
+  4. **Enable DMZ on the ISP Router**: 
+     - Log into the ISP router, find **DMZ** settings, and enable it.
+     - Direct the DMZ target IP to the OpenWrt WAN IP (e.g., `192.168.1.2`).
+     - For the WAN connection option in the DMZ settings, select the active fiber/GPON interface (typically named like `omci_ipv4_pppoe_1` or set to `Auto`) rather than backup connections like `dongle`.
 - **Telegram Rate Limits**: Notifications are throttled to a maximum of 10 per minute to prevent spam.
+- **IPv6 Issues / No IPv6 on Client Devices**: If your router has IPv6 but client devices (PCs, phones) fail IPv6 tests, or if websites load extremely slowly / fail to load on IPv6:
+  - **No IPv6 Internet on Clients (Single `/64` Prefix)**: If your ISP only provides a single `/64` subnet without Prefix Delegation (common with WISP/cellular or locked-down ISP modems), OpenWrt restricts client routing by default. Fix this by disabling the source filter:
+    ```bash
+    uci set network.wan6.sourcefilter='0' # Use network.wwan6.sourcefilter='0' for WISP mode
+    uci commit network
+    /etc/init.d/network restart
+    ```
+  - **Large Packets Fail / Websites Hang (MTU/MSS Clamping)**: Common on PPPoE connections (like Telkom IndiHome). Fix this by enabling `mtu_fix` on the firewall's WAN zone:
+    ```bash
+    uci set firewall.@zone[1].mtu_fix='1'
+    uci commit firewall
+    /etc/init.d/firewall restart
+    ```
 
 ## License
 MIT
