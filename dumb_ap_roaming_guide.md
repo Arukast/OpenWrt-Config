@@ -417,5 +417,17 @@ To resolve client hostnames on your Dumb AP, you can automate copying the active
    */5 * * * * scp -i /root/.ssh/id_ed25519 -o StrictHostKeyChecking=no root@192.168.11.1:/tmp/dhcp.leases /tmp/dhcp.leases
    ```
 
+   **Crucial Cron Service Activation:**
+   On OpenWrt, the cron service (`crond`) is not always active or enabled by default, and it will not automatically reload when you modify the crontab file. Run the following commands on the Dumb AP to enable the service, start it, and apply the new configuration:
+   ```bash
+   /etc/init.d/cron enable
+   /etc/init.d/cron start
+   /etc/init.d/cron restart
+   ```
+
 6. **Verify the Sync:**
    After the cron job runs (or after running the `scp` command manually once), the Associated Stations list in the Dumb AP's LuCI interface will resolve and display client hostnames instead of raw IP addresses or `?`.
+
+   > [!NOTE]
+   > Because `/tmp` is a temporary RAM disk (`tmpfs`), `/tmp/dhcp.leases` is cleared whenever the Dumb AP reboots. Hostnames will not display immediately after a boot until the cron job runs at the next 5-minute interval. You can run the `scp` sync command manually once after a reboot to populate them immediately, or add it to `/etc/rc.local` to sync immediately on startup.
+
