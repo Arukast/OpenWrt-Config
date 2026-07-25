@@ -92,38 +92,80 @@ When adding **VLAN 80** to ports on your router, choose the port setting based o
 
 ---
 
-### Method A: LuCI Web GUI
-1. Navigate to **Network $\rightarrow$ Interfaces $\rightarrow$ Devices**.
-2. Click **Configure...** on `br-lan`.
-3. Select the **Bridge VLAN filtering** tab.
-4. Click **Add VLAN**:
-   - **VLAN ID**: `80`
-   - **Local** (CPU Port): Set to `tagged` (checked/tagged).
-   - **Ports**: Set to `tagged` for trunk ports (e.g. `lan1`), `untagged` for dedicated IoT ports (e.g. `lan4`), or `off` if the port is only for Main LAN.
-5. Click **Save** $\rightarrow$ **Save & Apply**.
+### Method A: LuCI Web GUI (Step-by-Step & Troubleshooting)
+
+> [!IMPORTANT]
+> **Safety Rule**: Make sure your computer is connected to a port you are **NOT** modifying (e.g., `lan2` or `lan3`) so your connection to LuCI (`192.168.1.1`) is not lost during the configuration.
+
+1. **Enable VLAN Filtering on Main Bridge**:
+   - Navigate to **Network $\rightarrow$ Interfaces $\rightarrow$ Devices**.
+   - Find `br-lan` (Bridge device) and click **Configure...**.
+   - Under the **Bridge VLAN filtering** tab, ensure **Enable VLAN filtering** checkbox is **checked** (`[x]`).
+
+2. **Verify Row 1: Default VLAN 1 (Main LAN)**:
+   - **VLAN ID**: `1`
+   - **Local**: Checked (`[x]`)
+   - **Switch Ports (`lan1`, `lan2`, etc.)**: Set to **`U`** (Untagged).
+
+3. **Add Row 2: VLAN 80 (IoT VLAN)**:
+   - Click the green **Add** button at the bottom left of the table.
+   - **VLAN ID**: Type **`80`** into the text box.
+   - **Local**: Check the **Local** box (`[x]`) to include the router CPU interface.
+   - **Switch Ports (`lan1`, `lan2`, etc.)**:
+     - Set to **`T`** (Tagged) for **Trunk ports** (e.g. `lan1` connecting to an external AP or Managed Switch).
+     - Set to **`U`** (Untagged) for **Dedicated IoT ports** (e.g. `lan4` connecting to a wired IP Camera).
+     - Set to **`-`** (Off / empty) for ports that are only for Main LAN.
+
+4. **Save and Apply**:
+   - Click the green **Save** button in the bottom-right corner of the modal window.
+   - Click **Save & Apply** at the bottom of the main Devices page.
+
+> [!TIP]
+> **Understanding LuCI Control Legend**:
+> - **Local `[x]`**: Checkbox enabling CPU bridge participation for this VLAN.
+> - **`U`**: Untagged (Access port for normal end devices).
+> - **`T`**: Tagged (Trunk port for APs/Managed Switches).
+> - **`-`**: Off / Excluded from this VLAN.
+
+---
 
 ### Method B: UCI Command Line (SSH)
-Run the following commands on your OpenWrt router:
+
+> [!CAUTION]
+> **Emergency Internet / Connection Restore Command**:
+> If turning on VLAN filtering locks you out or breaks your internet access, run this single line in SSH to immediately restore your original connection:
+> ```bash
+> uci set network.@device[0].vlan_filtering='0' && uci commit network && /etc/init.d/network restart
+> ```
+
+#### Safe Step-by-Step UCI Command Sequence:
+
+To safely enable bridge VLAN filtering and attach `vlan 80` without breaking your primary LAN or WAN internet routing:
 
 ```bash
-# Enable VLAN filtering on main bridge br-lan
-uci set network.br_lan.vlan_filtering='1'
+# 1. Ensure primary LAN interface device points to VLAN 1 (br-lan.1)
+uci set network.lan.device='br-lan.1'
 
-# Add VLAN 80 entry to br-lan device
+# 2. Enable VLAN filtering on primary bridge device
+uci set network.@device[0].vlan_filtering='1'
+
+# 3. Create VLAN 80 entry for IoT
 uci add network bridge-vlan
 uci set network.@bridge-vlan[-1].device='br-lan'
 uci set network.@bridge-vlan[-1].vlan='80'
 
-# Example A: Tagged on port lan1 (for external AP / managed switch)
+# 4. Tag port lan1 for external AP/Switch (or untag lan4 for a wired camera)
 uci add_list network.@bridge-vlan[-1].ports='lan1:t'
 
-# Example B: Untagged on port lan4 (for a wired IP camera/device plugged directly into lan4)
-uci add_list network.@bridge-vlan[-1].ports='lan4'
-
-# Commit network configuration
+# 5. Save and restart network
 uci commit network
 /etc/init.d/network restart
 ```
+
+> [!NOTE]
+> Setting `network.lan.device='br-lan.1'` ensures that your main router LAN interface stays bound to VLAN 1 after bridge VLAN filtering is activated, preserving your default gateway and WAN internet connection.
+
+---
 
 ---
 
@@ -161,11 +203,11 @@ uci commit network
 2. Find the `iot` interface and click **Edit**.
 3. Scroll down to the bottom **DHCP Server** section.
 4. Click **Setup DHCP Server** (if not already enabled).
-5. Under **General Setup**:
+5. Under **IPv4 Settings**:
    - **Start**: `100`
    - **Limit**: `150`
+6. Under **General Setup**:
    - **Lease time**: `12h`
-6. Under **Advanced Settings**:
    - **DHCP-Options**: Add `6,192.168.80.1` (Forces IoT devices to use OpenWrt router for DNS).
 7. Click **Save** $\rightarrow$ **Save & Apply**.
 
@@ -231,32 +273,37 @@ uci commit firewall
 
 ---
 
-### 2. Allow Essential Gateway Services (DNS & DHCP)
+### 2. Allow & Force Gateway DNS with DoH (Prevent Hardcoded DNS Bypasses)
 
-IoT devices must be able to acquire an IP via DHCP and resolve hostnames via DNS.
+IoT devices must acquire an IP via DHCP and resolve hostnames via DNS. To prevent smart TVs or cameras with hardcoded DNS servers (like Google `8.8.8.8` or Cloudflare `1.1.1.1`) from bypassing your OpenWrt router's DoH (DNS-over-HTTPS) proxy, we create a **DNS Redirect (DNAT Hijack)** rule and **block external DoT (Port 853)**.
 
 #### LuCI Web GUI:
-1. Navigate to **Network $\rightarrow$ Firewall $\rightarrow$ Traffic Rules**.
-2. Click **Add** to create the DHCP rule:
-   - **Name**: `Allow-IoT-DHCP`
-   - **Protocol**: `UDP`
-   - **Source zone**: `iot_zone`
-   - **Destination zone**: `Device (input)`
-   - **Destination port**: `67 68`
-   - **Action**: `accept`
-   - Click **Save**.
-3. Click **Add** to create the DNS rule:
-   - **Name**: `Allow-IoT-DNS`
+1. **Allow DHCP**:
+   - Navigate to **Network $\rightarrow$ Firewall $\rightarrow$ Traffic Rules** $\rightarrow$ Click **Add**.
+   - **Name**: `Allow-IoT-DHCP`, **Protocol**: `UDP`, **Source zone**: `iot_zone`, **Destination zone**: `Device (input)`, **Destination port**: `67 68`, **Action**: `accept` $\rightarrow$ Click **Save**.
+
+2. **Allow Router DNS**:
+   - Navigate to **Network $\rightarrow$ Firewall $\rightarrow$ Traffic Rules** $\rightarrow$ Click **Add**.
+   - **Name**: `Allow-IoT-DNS`, **Protocol**: `TCP` and `UDP`, **Source zone**: `iot_zone`, **Destination zone**: `Device (input)`, **Destination port**: `53`, **Action**: `accept` $\rightarrow$ Click **Save**.
+
+3. **Force DNS Hijack (NAT Port Forward)**:
+   - Navigate to **Network $\rightarrow$ Firewall $\rightarrow$ NAT Rules** (or **Custom Rules**) $\rightarrow$ Click **Add**.
+   - **Name**: `Force-IoT-DNS-Hijack`
    - **Protocol**: `TCP` and `UDP`
    - **Source zone**: `iot_zone`
-   - **Destination zone**: `Device (input)`
    - **Destination port**: `53`
-   - **Action**: `accept`
+   - **Action**: `DNAT (Redirect)`
+   - **Redirect to IP**: `192.168.80.1` (or local router IP)
+   - **Redirect to port**: `53`
    - Click **Save**.
+
+4. **Block External DoT (DNS-over-TLS Port 853)**:
+   - Navigate to **Network $\rightarrow$ Firewall $\rightarrow$ Traffic Rules** $\rightarrow$ Click **Add**.
+   - **Name**: `Block-IoT-DoT-Port853`, **Protocol**: `TCP` and `UDP`, **Source zone**: `iot_zone`, **Destination zone**: `wan`, **Destination port**: `853`, **Action**: `reject` $\rightarrow$ Click **Save** $\rightarrow$ **Save & Apply**.
 
 #### UCI Command Line:
 ```bash
-# Allow DHCP requests from IoT zone
+# 1. Allow DHCP requests from IoT zone
 uci add firewall rule
 uci set firewall.@rule[-1].name='Allow-IoT-DHCP'
 uci set firewall.@rule[-1].src='iot_zone'
@@ -265,7 +312,7 @@ uci set firewall.@rule[-1].src_port='67-68'
 uci set firewall.@rule[-1].dest_port='67-68'
 uci set firewall.@rule[-1].target='ACCEPT'
 
-# Allow DNS queries (UDP and TCP) from IoT zone
+# 2. Allow DNS queries (UDP and TCP) to Router
 uci add firewall rule
 uci set firewall.@rule[-1].name='Allow-IoT-DNS'
 uci set firewall.@rule[-1].src='iot_zone'
@@ -273,7 +320,28 @@ uci set firewall.@rule[-1].proto='tcp udp'
 uci set firewall.@rule[-1].dest_port='53'
 uci set firewall.@rule[-1].target='ACCEPT'
 
+# 3. Force/Hijack any external Port 53 DNS queries back to OpenWrt DoH Resolver
+uci add firewall redirect
+uci set firewall.@redirect[-1].name='Force-IoT-DNS-Hijack'
+uci set firewall.@redirect[-1].src='iot_zone'
+uci set firewall.@redirect[-1].dest='iot_zone'
+uci set firewall.@redirect[-1].proto='tcp udp'
+uci set firewall.@redirect[-1].src_dport='53'
+uci set firewall.@redirect[-1].target='DNAT'
+uci set firewall.@redirect[-1].dest_ip='192.168.80.1'
+uci set firewall.@redirect[-1].dest_port='53'
+
+# 4. Block hardcoded DoT (DNS-over-TLS Port 853) to WAN
+uci add firewall rule
+uci set firewall.@rule[-1].name='Block-IoT-DoT-Port853'
+uci set firewall.@rule[-1].src='iot_zone'
+uci set firewall.@rule[-1].dest='wan'
+uci set firewall.@rule[-1].proto='tcp udp'
+uci set firewall.@rule[-1].dest_port='853'
+uci set firewall.@rule[-1].target='REJECT'
+
 uci commit firewall
+/etc/init.d/firewall restart
 ```
 
 ---
