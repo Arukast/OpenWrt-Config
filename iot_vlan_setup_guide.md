@@ -286,11 +286,23 @@ IoT devices must acquire an IP via DHCP and resolve hostnames via DNS. To preven
 #### LuCI Web GUI:
 1. **Allow DHCP**:
    - Navigate to **Network $\rightarrow$ Firewall $\rightarrow$ Traffic Rules** $\rightarrow$ Click **Add**.
-   - **Name**: `Allow-IoT-DHCP`, **Protocol**: `UDP`, **Source zone**: `iot_zone`, **Destination zone**: `Device (input)`, **Destination port**: `67 68`, **Action**: `accept` $\rightarrow$ Click **Save**.
+   - **Name**: `Allow-IoT-DHCP`
+   - **Protocol**: `UDP`
+   - **Source zone**: `iot_zone`
+   - **Destination zone**: `Device (input)`
+   - **Destination port**: `67 68`
+   - **Action**: `accept`
+   - Click **Save**.
 
 2. **Allow Router DNS**:
    - Navigate to **Network $\rightarrow$ Firewall $\rightarrow$ Traffic Rules** $\rightarrow$ Click **Add**.
-   - **Name**: `Allow-IoT-DNS`, **Protocol**: `TCP` and `UDP`, **Source zone**: `iot_zone`, **Destination zone**: `Device (input)`, **Destination port**: `53`, **Action**: `accept` $\rightarrow$ Click **Save**.
+   - **Name**: `Allow-IoT-DNS`
+   - **Protocol**: `TCP` and `UDP`
+   - **Source zone**: `iot_zone`
+   - **Destination zone**: `Device (input)`
+   - **Destination port**: `53`
+   - **Action**: `accept`
+   - Click **Save**.
 
 3. **Force DNS Hijack (NAT Port Forward)**:
    - Navigate to **Network $\rightarrow$ Firewall $\rightarrow$ NAT Rules** (or **Custom Rules**) $\rightarrow$ Click **Add**.
@@ -305,7 +317,13 @@ IoT devices must acquire an IP via DHCP and resolve hostnames via DNS. To preven
 
 4. **Block External DoT (DNS-over-TLS Port 853)**:
    - Navigate to **Network $\rightarrow$ Firewall $\rightarrow$ Traffic Rules** $\rightarrow$ Click **Add**.
-   - **Name**: `Block-IoT-DoT-Port853`, **Protocol**: `TCP` and `UDP`, **Source zone**: `iot_zone`, **Destination zone**: `wan`, **Destination port**: `853`, **Action**: `reject` $\rightarrow$ Click **Save** $\rightarrow$ **Save & Apply**.
+   - **Name**: `Block-IoT-DoT-Port853`
+   - **Protocol**: `TCP` and `UDP`
+   - **Source zone**: `iot_zone`
+   - **Destination zone**: `wan`
+   - **Destination port**: `853`
+   - **Action**: `reject`
+   - Click **Save** $\rightarrow$ **Save & Apply**.
 
 #### UCI Command Line:
 ```bash
