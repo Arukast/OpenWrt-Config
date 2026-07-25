@@ -97,28 +97,22 @@ When adding **VLAN 80** to ports on your router, choose the port setting based o
 > [!IMPORTANT]
 > **Safety Rule**: Make sure your computer is connected to a port you are **NOT** modifying (e.g., `lan2` or `lan3`) so your connection to LuCI (`192.168.1.1`) is not lost during the configuration.
 
-1. **Enable VLAN Filtering on Main Bridge**:
+1. **Configure Bridge VLAN Filtering**:
    - Navigate to **Network $\rightarrow$ Interfaces $\rightarrow$ Devices**.
    - Find `br-lan` (Bridge device) and click **Configure...**.
-   - Under the **Bridge VLAN filtering** tab, ensure **Enable VLAN filtering** checkbox is **checked** (`[x]`).
+   - Under the **Bridge VLAN filtering** tab, check **Enable VLAN filtering** (`[x]`).
+   - **Row 1 (`VLAN 1`)**: Ensure **Local** is checked (`[x]`), and switch ports (e.g. `lan1`) are set to **`U`** (Untagged).
+   - **Row 2 (`VLAN 80`)**: Click green **Add**, type **`80`**, check **Local** (`[x]`), and set trunk ports (e.g. `lan1`) to **`T`** (Tagged).
+   - Click **Save** in the modal popup window (do not click Save & Apply yet).
 
-2. **Verify Row 1: Default VLAN 1 (Main LAN)**:
-   - **VLAN ID**: `1`
-   - **Local**: Checked (`[x]`)
-   - **Switch Ports (`lan1`, `lan2`, etc.)**: Set to **`U`** (Untagged).
+2. **Bind LAN Interface to `br-lan.1`**:
+   - Navigate to **Network $\rightarrow$ Interfaces**.
+   - Click **Edit** next to **`lan`**.
+   - Under **Device**, select **`br-lan.1`** from the dropdown list.
+   - Click **Save**.
 
-3. **Add Row 2: VLAN 80 (IoT VLAN)**:
-   - Click the green **Add** button at the bottom left of the table.
-   - **VLAN ID**: Type **`80`** into the text box.
-   - **Local**: Check the **Local** box (`[x]`) to include the router CPU interface.
-   - **Switch Ports (`lan1`, `lan2`, etc.)**:
-     - Set to **`T`** (Tagged) for **Trunk ports** (e.g. `lan1` connecting to an external AP or Managed Switch).
-     - Set to **`U`** (Untagged) for **Dedicated IoT ports** (e.g. `lan4` connecting to a wired IP Camera).
-     - Set to **`-`** (Off / empty) for ports that are only for Main LAN.
-
-4. **Save and Apply**:
-   - Click the green **Save** button in the bottom-right corner of the modal window.
-   - Click **Save & Apply** at the bottom of the main Devices page.
+3. **Save and Apply**:
+   - Click **Save & Apply** at the bottom of the page to apply both changes simultaneously without disconnecting.
 
 > [!TIP]
 > **Understanding LuCI Control Legend**:
@@ -514,33 +508,56 @@ On the **Dumb AP**, you must:
 3. **Do NOT enable DHCP or Firewall on the Dumb AP** (The Main Router handles DHCP & firewall for VLAN 80).
 
 #### LuCI Web GUI (Dumb AP):
-1. **Configure Bridge VLAN**:
+
+1. **Configure Bridge VLAN Filtering**:
    - Navigate to **Network $\rightarrow$ Interfaces $\rightarrow$ Devices**.
    - Click **Configure...** on `br-lan` $\rightarrow$ **Bridge VLAN filtering** tab.
-   - Click **Add VLAN**: VLAN ID `80`, set `lan1` (incoming port) to `tagged`, set `Local` (CPU port) to `tagged`.
+   - Check **Enable VLAN filtering** (`[x]`).
+   - **Row 1 (`VLAN 1`)**: Ensure `Local` is checked (`[x]`), set incoming trunk port (`lan1`) to **`U`** (Untagged).
+   - **Row 2 (`VLAN 80`)**: Click green **Add**, type **`80`**, check `Local` (`[x]`), set incoming trunk port (`lan1`) to **`T`** (Tagged).
+   - Click **Save** in the modal popup window (do not click Save & Apply yet).
+
+2. **Bind Dumb AP LAN Interface to `br-lan.1`**:
+   - Navigate to **Network $\rightarrow$ Interfaces**.
+   - Click **Edit** next to **`lan`**.
+   - Under **Device**, select **`br-lan.1`** from the dropdown list.
    - Click **Save** $\rightarrow$ **Save & Apply**.
-2. **Add Unmanaged Interface**:
+
+3. **Add Unmanaged Interface**:
    - Navigate to **Network $\rightarrow$ Interfaces $\rightarrow$ Add new interface...**.
    - **Name**: `iot`, **Protocol**: `Unmanaged` (or `Static` with no IP/netmask), **Device**: `br-lan.80`.
    - Click **Save**.
-3. **Add Wireless SSID**:
+
+4. **Add Wireless SSID  (must match Main Router SSID config exactly for roaming)**:
    - Navigate to **Network $\rightarrow$ Wireless $\rightarrow$ Add**.
-   - **ESSID**: `Home-IoT`, **Mode**: `Access Point`, **Network**: check `iot`.
-   - **Encryption**: `WPA2-PSK`, set passphrase.
+   - **ESSID**: `Home-IoT`.
+   - **Mode**: `Access Point`.
+   - **Network**: Check **`iot`** (bound to `br-lan.80`).
+   - **Encryption**: `WPA2-PSK (CCMP)`.
+   - **Key**: Set to **same passphrase** as Main Router.
    - Click **Save** $\rightarrow$ **Save & Apply**.
 
 #### Dumb AP Network Configuration (`/etc/config/network`):
 ```bash
-# On Dumb AP: Enable VLAN filtering on bridge
-uci set network.br_lan.vlan_filtering='1'
+# 1. Point Dumb AP LAN interface to VLAN 1 (br-lan.1) so management IP stays connected
+uci set network.lan.device='br-lan.1'
 
-# On Dumb AP: Add VLAN 80 to bridge device
+# 2. Enable VLAN filtering on main bridge
+uci set network.@device[0].vlan_filtering='1'
+
+# 3. Create VLAN 1 entry (Default LAN)
+uci add network bridge-vlan
+uci set network.@bridge-vlan[-1].device='br-lan'
+uci set network.@bridge-vlan[-1].vlan='1'
+uci add_list network.@bridge-vlan[-1].ports='lan1:u'
+
+# 4. Create VLAN 80 entry (IoT VLAN)
 uci add network bridge-vlan
 uci set network.@bridge-vlan[-1].device='br-lan'
 uci set network.@bridge-vlan[-1].vlan='80'
 uci add_list network.@bridge-vlan[-1].ports='lan1:t'  # Incoming Ethernet cable from Main Router
 
-# On Dumb AP: Define static VLAN device interface (no IP needed on Dumb AP for IoT)
+# 5. Define unmanaged IoT interface (no IP or DHCP needed on Dumb AP for IoT)
 uci set network.iot=interface
 uci set network.iot.proto='none'
 uci set network.iot.device='br-lan.80'
@@ -578,15 +595,21 @@ By default, mDNS (multicast DNS / Bonjour) traffic on UDP port 5353 does not cro
 OpenWrt includes `umdns`, a lightweight native mDNS reflector daemon.
 
 #### LuCI Web GUI:
-1. Navigate to **System $\rightarrow$ Software**.
-2. Click **Update lists...**.
-3. In the **Filter** box, type `umdns` and click **Install**.
+1. **Install Package**:
+   - Navigate to **System $\rightarrow$ Software**.
+   - Click **Update lists...**.
+   - In the **Filter** box, type `umdns` and click **Install** (Optional: install `luci-app-umdns` if available in your repository feed).
+2. **Enable Service**:
+   - Navigate to **System $\rightarrow$ Startup**.
+   - Scroll down to `umdns`, ensure it is set to **Enabled**, and click **Start** (or **Restart**).
+
+*Note: `umdns` automatically reflects mDNS packets across all active network interfaces upon startup. To explicitly bind interfaces via CLI, use the UCI commands below.*
 
 #### UCI Command Line:
 ```bash
-# Install umdns
-opkg update
-opkg install umdns
+# Install umdns (OpenWrt 24.10+ uses apk, older versions use opkg update && opkg install)
+apk update
+apk add umdns
 
 # Enable umdns on both lan and iot interfaces
 uci set umdns.lan=listen
@@ -607,15 +630,19 @@ uci commit umdns
 If your network relies on complex mDNS filtering or Sonos discovery:
 
 #### LuCI Web GUI:
-1. Navigate to **System $\rightarrow$ Software**.
-2. Click **Update lists...**.
-3. Filter and install `avahi-daemon-service-ssh` and `dbus`.
+1. **Install Packages**:
+   - Navigate to **System $\rightarrow$ Software**.
+   - Click **Update lists...**.
+   - Filter and install `avahi-daemon-service-ssh` and `dbus`.
+2. **Enable Services**:
+   - Navigate to **System $\rightarrow$ Startup**.
+   - Scroll down to `dbus` and `avahi-daemon`, ensure both are set to **Enabled**, and click **Start**.
 
 #### UCI Command Line:
 ```bash
-# Install Avahi
-opkg update
-opkg install avahi-daemon-service-ssh dbus
+# Install Avahi (OpenWrt 24.10+ uses apk, older versions use opkg update && opkg install)
+apk update
+apk add avahi-daemon-service-ssh dbus
 
 # Enable reflector mode in /etc/avahi/avahi-daemon.conf
 sed -i 's/#enable-reflector=no/enable-reflector=yes/' /etc/avahi/avahi-daemon.conf
@@ -674,23 +701,29 @@ Connect a client device to the `Home-IoT` Wi-Fi SSID or a tagged VLAN 80 port.
 Run the following test commands from a device on the **IoT VLAN** (`192.168.80.X`):
 
 ```bash
-# 1. Internet Reachability Test (Should SUCCEED)
+# 1. Internet Reachability Test
+# Expected Result: SUCCEED (3 packets received, 0% packet loss)
 ping -c 3 1.1.1.1
 
-# 2. LAN Subnet Isolation Test (Should FAIL / Timeout)
+# 2. LAN Subnet Isolation Test
+# Note: Replace 192.168.1.100 with the IP address of any PC, laptop, or NAS on your Main LAN
+# Expected Result: FAIL / Timeout (0 packets received, 100% packet loss or Connection Timed Out)
 ping -c 3 192.168.1.100
 
-# 3. Router Management Port Access Test (Should FAIL / Refuse Connection)
-nc -zvw3 192.168.80.1 22
-nc -zvw3 192.168.80.1 80
-nc -zvw3 192.168.80.1 443
+# 3. Router Management Port Access Test
+# Expected Result: FAIL (Connection refused or Connection timed out - LuCI/SSH blocked)
+nc -z -w 3 192.168.80.1 22
+nc -z -w 3 192.168.80.1 80
+nc -z -w 3 192.168.80.1 443
 ```
 
 Run the following test command from a device on the **Main LAN** (`192.168.1.X`):
 
 ```bash
-# LAN to IoT Stateful Reachability Test (Should SUCCEED)
-ping -c 3 192.168.80.105
+# LAN to IoT Stateful Reachability Test
+# Note: Replace 192.168.80.100 with the IP address of any smart camera, bulb, or phone on the IoT VLAN
+# Expected Result: SUCCEED (3 packets received, 0% packet loss - LAN devices can manage IoT)
+ping -c 3 192.168.80.100
 ```
 
 ### 3. mDNS Service Discovery Test
