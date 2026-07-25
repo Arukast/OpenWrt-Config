@@ -304,27 +304,73 @@ wifi reload
 If you use external access points (e.g. OpenWrt Dumb APs, UniFi, TP-Link Omada) or managed switches, you must pass VLAN 80 as **Tagged** over your Ethernet trunk ports.
 
 ```
-[OpenWrt Router] ──(Trunk Port: VLAN 1 Untagged, VLAN 80 Tagged)──> [Managed Switch / Dumb AP]
+[Main OpenWrt Router] ──(Trunk: VLAN 1 Untagged, VLAN 80 Tagged)──> [Dumb AP / Managed Switch]
                                                                         ├── SSID: Home-LAN (VLAN 1)
                                                                         └── SSID: Home-IoT (VLAN 80)
 ```
 
-### Tagging Ethernet Ports on OpenWrt (DSA)
+### 1. Main Router Configuration (Sending Tagged VLAN 80)
 
-To send tagged VLAN 80 frames down physical port `lan1`:
+On the **Main Router**, set the trunk port (e.g., `lan1`) connecting to the Dumb AP as **Tagged** for VLAN 80:
 
 ```bash
-# Add tagged VLAN 80 to port lan1
+# On Main Router: Add tagged VLAN 80 to port lan1
 uci del_list network.@bridge-vlan[0].ports='lan1'     # Remove untagged lan1 from default bridge vlan
-uci add_list network.@bridge-vlan[0].ports='lan1:u'   # VLAN 1 Untagged (Native) on lan1
-uci add_list network.@bridge-vlan[1].ports='lan1:t'   # VLAN 80 Tagged on lan1
+uci add_list network.@bridge-vlan[0].ports='lan1:u'   # VLAN 1 Untagged (Native LAN) on lan1
+uci add_list network.@bridge-vlan[1].ports='lan1:t'   # VLAN 80 Tagged (IoT VLAN) on lan1
 
 uci commit network
 /etc/init.d/network restart
 ```
 
+---
+
+### 2. Dumb AP Configuration (Receiving Tagged VLAN 80)
+
+**Yes, you MUST configure VLAN 80 on the Dumb AP as well!** 
+
+On the **Dumb AP**, you must:
+1. Accept tagged `VLAN 80` on the incoming Ethernet trunk port (`lan1`).
+2. Attach the `Home-IoT` wireless SSID to `br-lan.80`.
+3. **Do NOT enable DHCP or Firewall on the Dumb AP** (The Main Router handles DHCP & firewall for VLAN 80).
+
+#### Dumb AP Network Configuration (`/etc/config/network`):
+```bash
+# On Dumb AP: Enable VLAN filtering on bridge
+uci set network.br_lan.vlan_filtering='1'
+
+# On Dumb AP: Add VLAN 80 to bridge device
+uci add network bridge-vlan
+uci set network.@bridge-vlan[-1].device='br-lan'
+uci set network.@bridge-vlan[-1].vlan='80'
+uci add_list network.@bridge-vlan[-1].ports='lan1:t'  # Incoming Ethernet cable from Main Router
+
+# On Dumb AP: Define static VLAN device interface (no IP needed on Dumb AP for IoT)
+uci set network.iot=interface
+uci set network.iot.proto='none'
+uci set network.iot.device='br-lan.80'
+
+uci commit network
+/etc/init.d/network restart
+```
+
+#### Dumb AP Wireless Configuration (`/etc/config/wireless`):
+```bash
+# On Dumb AP: Create Home-IoT SSID bound to the iot network (br-lan.80)
+uci add wireless wifi-iface
+uci set wireless.@wifi-iface[-1].device='radio0'
+uci set wireless.@wifi-iface[-1].mode='ap'
+uci set wireless.@wifi-iface[-1].ssid='Home-IoT'
+uci set wireless.@wifi-iface[-1].network='iot'
+uci set wireless.@wifi-iface[-1].encryption='psk2'
+uci set wireless.@wifi-iface[-1].key='YOUR_STRONG_IOT_WIFI_PASSWORD'
+
+uci commit wireless
+wifi reload
+```
+
 > [!NOTE]
-> For complete instructions on setting up roaming and VLAN trunking on secondary OpenWrt APs, refer to [`dumb_ap_roaming_guide.md`](file:///home/arukast/Projects/openwrt/dumb_ap_roaming_guide.md).
+> For complete details on configuring bridge static IP, disabling `dnsmasq`/`firewall`, and seamless roaming across Dumb APs, refer to [`dumb_ap_roaming_guide.md`](file:///home/arukast/Projects/openwrt/dumb_ap_roaming_guide.md).
 
 ---
 
