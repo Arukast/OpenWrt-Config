@@ -209,7 +209,9 @@ uci commit network
 6. Under **General Setup**:
    - **Lease time**: `12h`
    - **DHCP-Options**: Add `6,192.168.80.1` (Forces IoT devices to use OpenWrt router for DNS).
-7. Click **Save** $\rightarrow$ **Save & Apply**.
+7. Navigate to **Network $\rightarrow$ DHCP and DNS**:
+   - Under **General Settings** $\rightarrow$ **Listening Interfaces**: Ensure **`iot`** is selected.
+8. Click **Save** $\rightarrow$ **Save & Apply**.
 
 #### UCI Command Line:
 ```bash
@@ -220,6 +222,10 @@ uci set dhcp.iot.limit='150'
 uci set dhcp.iot.leasetime='12h'
 # Optional: Force IoT devices to use OpenWrt router IP for DNS
 uci add_list dhcp.iot.dhcp_option='6,192.168.80.1'
+
+# Ensure Dnsmasq listens on the iot interface
+uci add_list dhcp.@dnsmasq[0].interface='iot'
+
 uci commit dhcp
 /etc/init.d/dnsmasq restart
 ```
