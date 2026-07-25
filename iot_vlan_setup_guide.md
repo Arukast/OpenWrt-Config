@@ -56,7 +56,41 @@ Isolating untrusted IoT devices (smart bulbs, cameras, vacuum robots, smart TVs)
 
 ## Step 1: Configure DSA Bridge VLAN 80
 
-OpenWrt 21.02+ uses **DSA (Distributed Switch Architecture)**, treating switch ports as individual Linux interfaces bound to standard bridge devices (`br-lan`).
+OpenWrt 21.02+ uses **DSA (Distributed Switch Architecture)**, treating physical router switch ports (`lan1`, `lan2`, etc.) as individual Linux interfaces bound to the main bridge (`br-lan`).
+
+### Understanding Tagged vs. Untagged Ports
+
+When adding **VLAN 80** to ports on your router, choose the port setting based on what is physically plugged into that port:
+
+1. **Untagged (Access Port)**:
+   - **When to use**: Plugged directly into a normal device that does *not* understand VLAN tags (e.g., an IP camera, Smart TV, desktop PC, or printer).
+   - **How it works**: The router automatically places any normal network traffic from that port into VLAN 80, and removes the VLAN 80 header before sending data back to the device.
+2. **Tagged (Trunk Port)**:
+   - **When to use**: Plugged into a VLAN-aware device that handles multiple networks simultaneously (e.g., a Managed Switch, or an external Wi-Fi Access Point broadcasting both `Home-LAN` and `Home-IoT` SSIDs).
+   - **How it works**: The router attaches a 4-byte `VLAN 80` tag header to packets traveling over the cable so the receiving switch or AP knows which packet belongs to which network.
+3. **Primary CPU Port (`Local` / `br-lan`)**:
+   - **Setting**: Always set to **Tagged**. This allows the OpenWrt router CPU itself to send and receive traffic on the VLAN 80 interface (`br-lan.80`).
+
+---
+
+### Real-World Topology Examples
+
+- **Scenario 1: All-in-One OpenWrt Router (Internal Wi-Fi only)**
+  - `Local` (CPU Port): **Tagged** (`br-lan:t`)
+  - `lan1`, `lan2`, `lan3`, `lan4`: **Off** (or leave untagged in default VLAN 1 for normal LAN devices).
+  - *Result*: The router processes VLAN 80 internally and attaches it to the `Home-IoT` wireless SSID created in Step 4.
+
+- **Scenario 2: Dedicated Wired IoT Device (e.g. IP Camera on port `lan4`)**
+  - `Local` (CPU Port): **Tagged** (`br-lan:t`)
+  - `lan4`: **Untagged** (`lan4:u`)
+  - *Result*: Anything plugged directly into `lan4` is automatically put onto the IoT VLAN 80 without needing any VLAN settings on the device itself.
+
+- **Scenario 3: External Access Point or Managed Switch on port `lan1`**
+  - `Local` (CPU Port): **Tagged** (`br-lan:t`)
+  - `lan1`: **Tagged** (`lan1:t`)
+  - *Result*: Port `lan1` carries both default LAN traffic and VLAN 80 traffic down a single cable to the external switch/AP.
+
+---
 
 ### Method A: LuCI Web GUI
 1. Navigate to **Network $\rightarrow$ Interfaces $\rightarrow$ Devices**.
@@ -65,7 +99,7 @@ OpenWrt 21.02+ uses **DSA (Distributed Switch Architecture)**, treating switch p
 4. Click **Add VLAN**:
    - **VLAN ID**: `80`
    - **Local** (CPU Port): Set to `tagged` (checked/tagged).
-   - **Ports**: Set ports according to your topology (e.g., leave internal ports `untagged` or `tagged` if trunking to downstream APs).
+   - **Ports**: Set to `tagged` for trunk ports (e.g. `lan1`), `untagged` for dedicated IoT ports (e.g. `lan4`), or `off` if the port is only for Main LAN.
 5. Click **Save** $\rightarrow$ **Save & Apply**.
 
 ### Method B: UCI Command Line (SSH)
@@ -79,8 +113,12 @@ uci set network.br_lan.vlan_filtering='1'
 uci add network bridge-vlan
 uci set network.@bridge-vlan[-1].device='br-lan'
 uci set network.@bridge-vlan[-1].vlan='80'
-uci add_list network.@bridge-vlan[-1].ports='lan1:t'  # Optional: Tagged on port lan1 for external AP switch
-uci add_list network.@bridge-vlan[-1].ports='lan4'    # Optional: Untagged on port lan4 for dedicated IoT wired device
+
+# Example A: Tagged on port lan1 (for external AP / managed switch)
+uci add_list network.@bridge-vlan[-1].ports='lan1:t'
+
+# Example B: Untagged on port lan4 (for a wired IP camera/device plugged directly into lan4)
+uci add_list network.@bridge-vlan[-1].ports='lan4'
 
 # Commit network configuration
 uci commit network
