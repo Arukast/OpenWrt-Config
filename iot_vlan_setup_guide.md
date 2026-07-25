@@ -156,6 +156,19 @@ uci commit network
 
 ### 2. DHCP Server Configuration (`/etc/config/dhcp`)
 
+#### LuCI Web GUI:
+1. Navigate to **Network $\rightarrow$ Interfaces**.
+2. Find the `iot` interface and click **Edit**.
+3. Scroll down to the bottom **DHCP Server** section.
+4. Click **Setup DHCP Server** (if not already enabled).
+5. Under **General Setup**:
+   - **Start**: `100`
+   - **Limit**: `150`
+   - **Lease time**: `12h`
+6. Under **Advanced Settings**:
+   - **DHCP-Options**: Add `6,192.168.80.1` (Forces IoT devices to use OpenWrt router for DNS).
+7. Click **Save** $\rightarrow$ **Save & Apply**.
+
 #### UCI Command Line:
 ```bash
 uci set dhcp.iot=dhcp
@@ -178,6 +191,20 @@ Strictly isolate the `iot` firewall zone while granting necessary services (DHCP
 ### 1. Firewall Zone Definition
 
 Add the `iot_zone` firewall zone in OpenWrt:
+
+#### LuCI Web GUI:
+1. Navigate to **Network $\rightarrow$ Firewall**.
+2. Scroll to **Zones** and click **Add**.
+3. **General Settings**:
+   - **Name**: `iot_zone`
+   - **Input**: `reject`
+   - **Output**: `accept`
+   - **Forward**: `reject`
+   - **Covered networks**: Check `iot`
+4. **Inter-Zone Forwarding**:
+   - **Allow forward to destination zones**: Check `wan`
+   - **Allow forward from source zones**: Check `lan`
+5. Click **Save**.
 
 #### UCI Command Line:
 ```bash
@@ -202,10 +229,32 @@ uci set firewall.@forwarding[-1].dest='iot_zone'
 uci commit firewall
 ```
 
+---
+
 ### 2. Allow Essential Gateway Services (DNS & DHCP)
 
 IoT devices must be able to acquire an IP via DHCP and resolve hostnames via DNS.
 
+#### LuCI Web GUI:
+1. Navigate to **Network $\rightarrow$ Firewall $\rightarrow$ Traffic Rules**.
+2. Click **Add** to create the DHCP rule:
+   - **Name**: `Allow-IoT-DHCP`
+   - **Protocol**: `UDP`
+   - **Source zone**: `iot_zone`
+   - **Destination zone**: `Device (input)`
+   - **Destination port**: `67 68`
+   - **Action**: `accept`
+   - Click **Save**.
+3. Click **Add** to create the DNS rule:
+   - **Name**: `Allow-IoT-DNS`
+   - **Protocol**: `TCP` and `UDP`
+   - **Source zone**: `iot_zone`
+   - **Destination zone**: `Device (input)`
+   - **Destination port**: `53`
+   - **Action**: `accept`
+   - Click **Save**.
+
+#### UCI Command Line:
 ```bash
 # Allow DHCP requests from IoT zone
 uci add firewall rule
@@ -227,10 +276,24 @@ uci set firewall.@rule[-1].target='ACCEPT'
 uci commit firewall
 ```
 
+---
+
 ### 3. Explicitly Block Router Management Interfaces
 
 Ensure IoT devices cannot access administrative router services (SSH, LuCI, Telnet).
 
+#### LuCI Web GUI:
+1. Navigate to **Network $\rightarrow$ Firewall $\rightarrow$ Traffic Rules**.
+2. Click **Add**:
+   - **Name**: `Block-IoT-Router-Admin`
+   - **Protocol**: `TCP`
+   - **Source zone**: `iot_zone`
+   - **Destination zone**: `Device (input)`
+   - **Destination port**: `22 80 443 23`
+   - **Action**: `reject`
+3. Click **Save** $\rightarrow$ **Save & Apply**.
+
+#### UCI Command Line:
 ```bash
 # Explicitly block access to Router Web GUI & SSH from IoT
 uci add firewall rule
@@ -244,10 +307,25 @@ uci commit firewall
 /etc/init.d/firewall restart
 ```
 
+---
+
 ### 4. Optional: Home Assistant Pinhole Rule Example
 
 If your Home Assistant server resides on `192.168.1.50` on the `lan` zone and needs to receive incoming webhooks or telemetry directly initiated by specific IoT devices (e.g. ESPHome / Tasmota), create an explicit pinhole:
 
+#### LuCI Web GUI:
+1. Navigate to **Network $\rightarrow$ Firewall $\rightarrow$ Traffic Rules**.
+2. Click **Add**:
+   - **Name**: `Allow-IoT-to-HomeAssistant-Webhook`
+   - **Protocol**: `TCP`
+   - **Source zone**: `iot_zone`
+   - **Destination zone**: `lan`
+   - **Destination IP**: `192.168.1.50`
+   - **Destination port**: `8123`
+   - **Action**: `accept`
+3. Click **Save** $\rightarrow$ **Save & Apply**.
+
+#### UCI Command Line:
 ```bash
 uci add firewall rule
 uci set firewall.@rule[-1].name='Allow-IoT-to-HomeAssistant-Webhook'
@@ -313,6 +391,15 @@ If you use external access points (e.g. OpenWrt Dumb APs, UniFi, TP-Link Omada) 
 
 On the **Main Router**, set the trunk port (e.g., `lan1`) connecting to the Dumb AP as **Tagged** for VLAN 80:
 
+#### LuCI Web GUI (Main Router):
+1. Navigate to **Network $\rightarrow$ Interfaces $\rightarrow$ Devices**.
+2. Click **Configure...** on `br-lan`.
+3. Go to **Bridge VLAN filtering** tab:
+   - For **VLAN 1** (Default LAN): Set port `lan1` to `untagged` (`u`).
+   - For **VLAN 80** (IoT): Set port `lan1` to `tagged` (`t`).
+4. Click **Save** $\rightarrow$ **Save & Apply**.
+
+#### UCI Command Line (Main Router):
 ```bash
 # On Main Router: Add tagged VLAN 80 to port lan1
 uci del_list network.@bridge-vlan[0].ports='lan1'     # Remove untagged lan1 from default bridge vlan
@@ -333,6 +420,22 @@ On the **Dumb AP**, you must:
 1. Accept tagged `VLAN 80` on the incoming Ethernet trunk port (`lan1`).
 2. Attach the `Home-IoT` wireless SSID to `br-lan.80`.
 3. **Do NOT enable DHCP or Firewall on the Dumb AP** (The Main Router handles DHCP & firewall for VLAN 80).
+
+#### LuCI Web GUI (Dumb AP):
+1. **Configure Bridge VLAN**:
+   - Navigate to **Network $\rightarrow$ Interfaces $\rightarrow$ Devices**.
+   - Click **Configure...** on `br-lan` $\rightarrow$ **Bridge VLAN filtering** tab.
+   - Click **Add VLAN**: VLAN ID `80`, set `lan1` (incoming port) to `tagged`, set `Local` (CPU port) to `tagged`.
+   - Click **Save** $\rightarrow$ **Save & Apply**.
+2. **Add Unmanaged Interface**:
+   - Navigate to **Network $\rightarrow$ Interfaces $\rightarrow$ Add new interface...**.
+   - **Name**: `iot`, **Protocol**: `Unmanaged` (or `Static` with no IP/netmask), **Device**: `br-lan.80`.
+   - Click **Save**.
+3. **Add Wireless SSID**:
+   - Navigate to **Network $\rightarrow$ Wireless $\rightarrow$ Add**.
+   - **ESSID**: `Home-IoT`, **Mode**: `Access Point`, **Network**: check `iot`.
+   - **Encryption**: `WPA2-PSK`, set passphrase.
+   - Click **Save** $\rightarrow$ **Save & Apply**.
 
 #### Dumb AP Network Configuration (`/etc/config/network`):
 ```bash
@@ -382,6 +485,12 @@ By default, mDNS (multicast DNS / Bonjour) traffic on UDP port 5353 does not cro
 
 OpenWrt includes `umdns`, a lightweight native mDNS reflector daemon.
 
+#### LuCI Web GUI:
+1. Navigate to **System $\rightarrow$ Software**.
+2. Click **Update lists...**.
+3. In the **Filter** box, type `umdns` and click **Install**.
+
+#### UCI Command Line:
 ```bash
 # Install umdns
 opkg update
@@ -399,10 +508,18 @@ uci commit umdns
 /etc/init.d/umdns start
 ```
 
+---
+
 ### Option 2: Avahi Daemon (`avahi-daemon-service-ssh`)
 
 If your network relies on complex mDNS filtering or Sonos discovery:
 
+#### LuCI Web GUI:
+1. Navigate to **System $\rightarrow$ Software**.
+2. Click **Update lists...**.
+3. Filter and install `avahi-daemon-service-ssh` and `dbus`.
+
+#### UCI Command Line:
 ```bash
 # Install Avahi
 opkg update
@@ -417,10 +534,25 @@ sed -i 's/#enable-reflector=no/enable-reflector=yes/' /etc/avahi/avahi-daemon.co
 /etc/init.d/avahi-daemon start
 ```
 
+---
+
 ### Add Firewall Rule for mDNS Multicast Traffic
 
 Allow mDNS multicast traffic (UDP 5353) to be received on router interfaces:
 
+#### LuCI Web GUI:
+1. Navigate to **Network $\rightarrow$ Firewall $\rightarrow$ Traffic Rules**.
+2. Click **Add**:
+   - **Name**: `Allow-mDNS-Multicast`
+   - **Protocol**: `UDP`
+   - **Source zone**: `Any zone (any)`
+   - **Destination zone**: `Device (input)`
+   - **Destination IP**: `224.0.0.251`
+   - **Destination port**: `5353`
+   - **Action**: `accept`
+3. Click **Save** $\rightarrow$ **Save & Apply**.
+
+#### UCI Command Line:
 ```bash
 uci add firewall rule
 uci set firewall.@rule[-1].name='Allow-mDNS-Multicast'
