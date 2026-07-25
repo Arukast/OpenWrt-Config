@@ -209,7 +209,7 @@ uci commit network
 6. Under **General Setup**:
    - **Lease time**: `12h`
    - **DHCP-Options**: Add `6,192.168.80.1` (Forces IoT devices to use OpenWrt router for DNS).
-7. Navigate to **Network $\rightarrow$ DHCP and DNS**:
+7. Navigate to **Network $\rightarrow$ DHCP $\rightarrow$ dnsmasq $\rightarrow$ Device & Ports**:
    - Under **General Settings** $\rightarrow$ **Listening Interfaces**: Ensure **`iot`** is selected.
 8. Click **Save** $\rightarrow$ **Save & Apply**.
 
