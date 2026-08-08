@@ -734,7 +734,18 @@ fi
 # =============================================================================
 section "10. mDNS / ZeroConf"
 
-_mdns_engine=${MDNS_ENGINE:-"umdns"}
+# Auto-detect engine if MDNS_ENGINE is not set: check if avahi or umdns service/process exists
+if [ -z "$MDNS_ENGINE" ]; then
+    if pgrep avahi-daemon >/dev/null 2>&1 || [ -f /etc/init.d/avahi-daemon ]; then
+        _mdns_engine="avahi"
+    elif pgrep umdns >/dev/null 2>&1 || [ -f /etc/init.d/umdns ]; then
+        _mdns_engine="umdns"
+    else
+        _mdns_engine="avahi"
+    fi
+else
+    _mdns_engine="$MDNS_ENGINE"
+fi
 case "$_mdns_engine" in
     umdns)
         if pgrep umdns >/dev/null 2>&1 || [ -f /etc/init.d/umdns ]; then
