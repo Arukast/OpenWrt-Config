@@ -43,6 +43,15 @@ setup_dns() {
     run_uci add_list dhcp.@dnsmasq[0].address='/mask.icloud.com/'
     run_uci add_list dhcp.@dnsmasq[0].address='/mask-h2.icloud.com/'
 
+    # Serve the router's own hostname via DNS for the .local domain.
+    # dnsmasq already auto-serves <hostname>.lan for all clients.
+    # Adding <hostname>.local here provides a DNS fallback for clients where
+    # mDNS (.local) is unreliable (e.g. Linux with systemd-resolved + avahi
+    # conflict). Note: Linux clients with mdns4_minimal in nsswitch.conf will
+    # NOT reach this DNS entry — they should use <hostname>.lan instead.
+    # Clients using mdns4 (fallback enabled) or Android/iOS will benefit.
+    run_uci add_list dhcp.@dnsmasq[0].address="/${HOSTNAME}.local/${LAN_IP}"
+
     if [ "$CONNECTION_MODE" = "WISP" ]; then
         _wan6_if="wwan6"
     else
@@ -99,11 +108,14 @@ setup_dns() {
         umdns)
             log_info "Configuring umdns micro daemon..."
             [ -f /etc/config/umdns ] || run_cmd touch /etc/config/umdns
-            run_uci set umdns.lan=listen
-            run_uci set umdns.lan.interface='lan'
+            while uci -q get umdns.@umdns[0] >/dev/null 2>&1; do
+                run_uci delete umdns.@umdns[0]
+            done
+            run_uci add umdns umdns
+            run_uci set umdns.@umdns[-1].listen_httpport='80'
+            run_uci add_list umdns.@umdns[-1].network='lan'
             if uci -q get network.iot >/dev/null; then
-                run_uci set umdns.iot=listen
-                run_uci set umdns.iot.interface='iot'
+                run_uci add_list umdns.@umdns[-1].network='iot'
             fi
             run_uci commit umdns
             ;;
@@ -112,6 +124,19 @@ setup_dns() {
             if [ -f /etc/avahi/avahi-daemon.conf ]; then
                 sed -i 's/^#*enable-reflector=.*/enable-reflector=yes/' /etc/avahi/avahi-daemon.conf
                 sed -i 's/^#*use-ipv6=.*/use-ipv6='"${ENABLE_IPV6:-1}"'/' /etc/avahi/avahi-daemon.conf
+
+                # On OpenWrt DSA/VLAN setups the LAN IP lives on a sub-interface
+                # (e.g. br-lan.1) rather than br-lan. Detect it dynamically so
+                # avahi binds to the correct interface instead of failing silently.
+                _avahi_iface=$(ip -o -4 addr show | awk -v ip="${LAN_IP}" '$4 ~ "^"ip"/" {print $2; exit}')
+                if [ -n "$_avahi_iface" ]; then
+                    log_info "avahi: detected LAN interface as $_avahi_iface"
+                    # Remove any existing allow-interfaces line then re-insert under [server]
+                    sed -i '/^#*allow-interfaces=/d' /etc/avahi/avahi-daemon.conf
+                    sed -i "/^\[server\]/a allow-interfaces=$_avahi_iface" /etc/avahi/avahi-daemon.conf
+                else
+                    log_warn "avahi: could not detect LAN interface for LAN_IP=${LAN_IP}; skipping allow-interfaces"
+                fi
             fi
             ;;
         none|0)

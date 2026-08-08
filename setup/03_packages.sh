@@ -66,7 +66,9 @@ exec /usr/bin/wget.orig -4 "$@"
             run_cmd apk add umdns && log_ok "umdns package installed." || log_warn "umdns package install failed."
             ;;
         avahi)
-            run_cmd apk add avahi-daemon && log_ok "avahi-daemon package installed." || log_warn "avahi-daemon package install failed."
+            # ip-bridge (from iproute2) provides the 'bridge' command needed to
+            # manage bridge VLAN tables for WiFi interfaces (br-lan VLAN 1 fix).
+            run_cmd apk add avahi-nodbus-daemon ip-bridge && log_ok "avahi + ip-bridge packages installed." || log_warn "avahi-nodbus-daemon package install failed."
             ;;
         none|0)
             log_info "mDNS engine set to none. Skipping mDNS package installation."

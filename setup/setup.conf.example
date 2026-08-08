@@ -93,7 +93,7 @@ USE_WAN_AS_LAN=0                 # Options: 1 (enable), 0 (disable). Repurposes 
 ENABLE_USTEER=1                  # Options: 1 (enable), 0 (disable). Band steering daemon.
 ENABLE_BANDWIDTH_MONITOR=1       # Options: 1 (enable), 0 (disable). vnStat bandwidth monitor.
 ENABLE_TRAFFIC_MONITOR=1         # Options: 1 (enable), 0 (disable). nlbwmon traffic monitor.
-MDNS_ENGINE="umdns"              # Options: umdns (lightweight micro daemon), avahi (full stack), none (disable)
+MDNS_ENGINE="avahi"              # Options: avahi (full stack, recommended), umdns (lightweight micro daemon), none (disable)
 
 # --- WireGuard over IPv6 Config ---
 ENABLE_WIREGUARD=0                # Options: 1 (enable), 0 (disable)

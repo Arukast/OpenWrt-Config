@@ -590,24 +590,57 @@ wifi reload
 
 By default, mDNS (multicast DNS / Bonjour) traffic on UDP port 5353 does not cross VLAN boundaries. Without an mDNS reflector, smart home apps on your Main LAN will fail to auto-discover Apple TV/HomeKit, Google Chromecast, Sonos, or AirPlay devices on the IoT VLAN.
 
-### Option 1: Lightweight Micro mDNS Daemon (`umdns`) - Recommended for OpenWrt
+> [!TIP]
+> **Automated Setup Script Integration**:
+> If you use the automated setup script (`OpenWrtSetup.sh`), mDNS is configured automatically out of the box via `MDNS_ENGINE="avahi"` (or `MDNS_ENGINE="umdns"`) in `setup.conf`. The script installs necessary packages, configures firewall rules for both LAN and IoT zones, installs a hotplug script to ensure Wi-Fi AP ports retain VLAN 1 membership, and configures `.local` DNS fallback.
 
-OpenWrt includes `umdns`, a lightweight native mDNS reflector daemon.
+---
+
+### Option 1: Avahi Daemon (`avahi-nodbus-daemon`) - Recommended Setup Default
+
+`avahi-nodbus-daemon` is a full-featured, lightweight mDNS reflector that runs without the memory and system overhead of DBus, making it ideal for OpenWrt routers.
 
 #### LuCI Web GUI:
 1. **Install Package**:
    - Navigate to **System $\rightarrow$ Software**.
    - Click **Update lists...**.
-   - In the **Filter** box, type `umdns` and click **Install** (Optional: install `luci-app-umdns` if available in your repository feed).
-2. **Enable Service**:
+   - Filter for `avahi-nodbus-daemon` and `ip-bridge`, then click **Install**.
+2. **Enable Reflector Mode**:
+   - Using SSH, edit `/etc/avahi/avahi-daemon.conf` and set `enable-reflector=yes` in the `[reflector]` section.
+3. **Enable Service**:
    - Navigate to **System $\rightarrow$ Startup**.
-   - Scroll down to `umdns`, ensure it is set to **Enabled**, and click **Start** (or **Restart**).
+   - Scroll down to `avahi-daemon`, ensure it is set to **Enabled**, and click **Start** (or **Restart**).
 
-*Note: `umdns` automatically reflects mDNS packets across all active network interfaces upon startup. To explicitly bind interfaces via CLI, use the UCI commands below.*
-
-#### UCI Command Line:
+#### UCI / CLI Commands:
 ```bash
-# Install umdns (OpenWrt 24.10+ uses apk, older versions use opkg update && opkg install)
+# 1. Install Avahi (no-dbus version) and ip-bridge (OpenWrt 24.10+ uses apk, older versions use opkg)
+apk update
+apk add avahi-nodbus-daemon ip-bridge
+
+# 2. Enable mDNS reflector mode in /etc/avahi/avahi-daemon.conf
+sed -i 's/#enable-reflector=no/enable-reflector=yes/' /etc/avahi/avahi-daemon.conf
+
+# 3. Enable and start the service
+/etc/init.d/avahi-daemon enable
+/etc/init.d/avahi-daemon start
+```
+
+---
+
+### Option 2: Lightweight Micro mDNS Daemon (`umdns`)
+
+OpenWrt also includes `umdns`, a lightweight native mDNS reflector micro-daemon.
+
+#### LuCI Web GUI:
+1. **Install Package**:
+   - Navigate to **System $\rightarrow$ Software** $\rightarrow$ Click **Update lists...**.
+   - In the **Filter** box, type `umdns` and click **Install**.
+2. **Enable Service**:
+   - Navigate to **System $\rightarrow$ Startup** $\rightarrow$ Scroll down to `umdns`, set to **Enabled**, and click **Start**.
+
+#### UCI / CLI Commands:
+```bash
+# Install umdns
 apk update
 apk add umdns
 
@@ -625,64 +658,95 @@ uci commit umdns
 
 ---
 
-### Option 2: Avahi Daemon (`avahi-daemon-service-ssh`)
+### Firewall Rules for mDNS Traffic
 
-If your network relies on complex mDNS filtering or Sonos discovery:
-
-#### LuCI Web GUI:
-1. **Install Packages**:
-   - Navigate to **System $\rightarrow$ Software**.
-   - Click **Update lists...**.
-   - Filter and install `avahi-daemon-service-ssh` and `dbus`.
-2. **Enable Services**:
-   - Navigate to **System $\rightarrow$ Startup**.
-   - Scroll down to `dbus` and `avahi-daemon`, ensure both are set to **Enabled**, and click **Start**.
-
-#### UCI Command Line:
-```bash
-# Install Avahi (OpenWrt 24.10+ uses apk, older versions use opkg update && opkg install)
-apk update
-apk add avahi-daemon-service-ssh dbus
-
-# Enable reflector mode in /etc/avahi/avahi-daemon.conf
-sed -i 's/#enable-reflector=no/enable-reflector=yes/' /etc/avahi/avahi-daemon.conf
-
-/etc/init.d/dbus enable
-/etc/init.d/dbus start
-/etc/init.d/avahi-daemon enable
-/etc/init.d/avahi-daemon start
-```
-
----
-
-### Add Firewall Rule for mDNS Multicast Traffic
-
-Allow mDNS multicast traffic (UDP 5353) to be received on router interfaces:
+To allow mDNS multicast traffic (UDP 5353) to reach the reflector daemon from both the **Main LAN** and **IoT** zones:
 
 #### LuCI Web GUI:
-1. Navigate to **Network $\rightarrow$ Firewall $\rightarrow$ Traffic Rules**.
-2. Click **Add**:
-   - **Name**: `Allow-mDNS-Multicast`
+1. Navigate to **Network $\rightarrow$ Firewall $\rightarrow$ Traffic Rules** $\rightarrow$ Click **Add**.
+2. **Rule 1 (Allow-mDNS for LAN)**:
+   - **Name**: `Allow-mDNS`
    - **Protocol**: `UDP`
-   - **Source zone**: `Any zone (any)`
-   - **Destination zone**: `Device (input)`
-   - **Destination IP**: `224.0.0.251`
+   - **Source zone**: `lan`
    - **Destination port**: `5353`
    - **Action**: `accept`
-3. Click **Save** $\rightarrow$ **Save & Apply**.
+3. **Rule 2 (Allow-IoT-mDNS for IoT)**:
+   - **Name**: `Allow-IoT-mDNS`
+   - **Protocol**: `UDP`
+   - **Source zone**: `iot_zone` (or `iot`)
+   - **Destination port**: `5353`
+   - **Action**: `accept`
+4. Click **Save** $\rightarrow$ **Save & Apply**.
 
-#### UCI Command Line:
+#### UCI / CLI Commands:
 ```bash
+# Allow mDNS queries from LAN zone
 uci add firewall rule
-uci set firewall.@rule[-1].name='Allow-mDNS-Multicast'
-uci set firewall.@rule[-1].src='*'
+uci set firewall.@rule[-1].name='Allow-mDNS'
+uci set firewall.@rule[-1].src='lan'
 uci set firewall.@rule[-1].proto='udp'
-uci set firewall.@rule[-1].dest_ip='224.0.0.251'
+uci set firewall.@rule[-1].dest_port='5353'
+uci set firewall.@rule[-1].target='ACCEPT'
+
+# Allow mDNS queries from IoT zone
+uci add firewall rule
+uci set firewall.@rule[-1].name='Allow-IoT-mDNS'
+uci set firewall.@rule[-1].src='iot_zone'
+uci set firewall.@rule[-1].proto='udp'
 uci set firewall.@rule[-1].dest_port='5353'
 uci set firewall.@rule[-1].target='ACCEPT'
 
 uci commit firewall
 /etc/init.d/firewall restart
+```
+
+---
+
+### Critical Gotcha: Bridge VLAN 1 Membership for Wi-Fi AP Interfaces
+
+When DSA Bridge VLAN filtering is enabled (`vlan_filtering=1`) and your primary LAN interface is bound to a VLAN sub-interface (e.g., `br-lan.1`), `hostapd` dynamically attaches Wi-Fi AP interfaces (`phy0-ap0`, `phy1-ap0`, etc.) directly to `br-lan` **without** VLAN 1 membership (`pvid untagged`).
+
+Without VLAN 1 membership on the Wi-Fi AP interface, multicast traffic (such as mDNS) originating from `br-lan.1` or reflected across VLANs will **not** reach Wi-Fi clients on the main LAN!
+
+#### Solution: Dynamic Hotplug Script (`/etc/hotplug.d/net/30-bridge-vlan-wifi`)
+
+Create the following hotplug script so that every time a Wi-Fi interface comes up, it is automatically assigned to VLAN 1 (`pvid untagged`):
+
+```bash
+mkdir -p /etc/hotplug.d/net
+cat > /etc/hotplug.d/net/30-bridge-vlan-wifi << 'HOTPLUG_EOF'
+#!/bin/sh
+# Assign WiFi AP bridge ports to VLAN 1 (pvid, untagged) when they join br-lan.
+# Fixes mDNS multicast reaching WiFi clients when vlan_filtering=1 and LAN uses br-lan.1.
+[ "$ACTION" = "add" ] || exit 0
+case "$INTERFACE" in phy*-ap*) ;; *) exit 0 ;; esac
+sleep 1
+MASTER=$(ip link show dev "$INTERFACE" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="master"){print $(i+1);exit}}')
+[ "$MASTER" = "br-lan" ] || exit 0
+[ "$(cat /sys/class/net/br-lan/bridge/vlan_filtering 2>/dev/null)" = "1" ] || exit 0
+bridge vlan add vid 1 dev "$INTERFACE" pvid untagged 2>/dev/null && \
+    logger -t bridge-vlan "Added $INTERFACE to VLAN 1 (pvid untagged) on br-lan"
+HOTPLUG_EOF
+chmod +x /etc/hotplug.d/net/30-bridge-vlan-wifi
+```
+
+To apply immediately without waiting for a Wi-Fi restart:
+```bash
+for _wif in $(ip link show master br-lan 2>/dev/null | grep -oE 'phy[0-9]+-ap[0-9]+'); do
+    bridge vlan add vid 1 dev "$_wif" pvid untagged 2>/dev/null
+done
+```
+
+---
+
+### DNS Fallback for `.local` Hostnames
+
+As an additional safeguard for clients where native mDNS resolution is disabled or uncooperative (e.g. Linux hosts using `systemd-resolved` or strict `nsswitch.conf` rules), dnsmasq can serve the router's own hostname under `.local`:
+
+```bash
+uci add_list dhcp.@dnsmasq[0].address="/router.local/192.168.1.1"
+uci commit dhcp
+/etc/init.d/dnsmasq restart
 ```
 
 ---
@@ -797,4 +861,18 @@ config rule
     option dest 'lan'
     option dest_port '22 80 443 23'
     option target 'REJECT'
+
+config rule
+    option name 'Allow-mDNS'
+    option src 'lan'
+    option proto 'udp'
+    option dest_port '5353'
+    option target 'ACCEPT'
+
+config rule
+    option name 'Allow-IoT-mDNS'
+    option src 'iot_zone'
+    option proto 'udp'
+    option dest_port '5353'
+    option target 'ACCEPT'
 ```

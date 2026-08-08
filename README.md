@@ -148,5 +148,37 @@ To get real-time Telegram alerts and keep an automated log in Google Sheets, you
     /etc/init.d/firewall restart
     ```
 
+- **mDNS / Hostname Resolution (`.local` vs `.lan`)**:
+  OpenWrt's dnsmasq automatically serves `<hostname>.lan` for all connected clients via regular DNS. This is the **reliable hostname to use on Linux clients**.
+  
+  | Domain | Resolution Method | Linux | Android/iOS |
+  |--------|------------------|-------|-------------|
+  | `<hostname>.lan` | dnsmasq DNS | ✅ Always works | ✅ Always works |
+  | `<hostname>.local` | mDNS (avahi) | ⚠️ Unreliable | ✅ Works |
+
+  **Why `.local` fails on Linux**: Modern Linux desktops run both `avahi-daemon` and `systemd-resolved`, and both try to claim the mDNS multicast socket (UDP 5353). This conflict causes avahi to silently fail to receive mDNS announcements, even though it appears to be running.
+  
+  **Symptoms**:
+  ```
+  ping: zulvanet-rtr-00.local: Temporary failure in name resolution
+  avahi-resolve -n zulvanet-rtr-00.local: Timeout reached
+  ```
+  
+  **Permanent fix — disable systemd-resolved's mDNS responder** (let avahi own port 5353):
+  ```bash
+  sudo bash -c 'grep -q "^MulticastDNS" /etc/systemd/resolved.conf \
+      && sed -i "s/^MulticastDNS=.*/MulticastDNS=no/" /etc/systemd/resolved.conf \
+      || echo "MulticastDNS=no" >> /etc/systemd/resolved.conf'
+  sudo systemctl restart systemd-resolved
+  sudo systemctl restart avahi-daemon
+  ```
+  
+  **Alternative — enable DNS fallback for `.local`** (change `mdns4_minimal` → `mdns4` in `/etc/nsswitch.conf`). The `_minimal` variant has a hard `NOTFOUND=return` stop; `mdns4` falls through to DNS. Since dnsmasq serves `<hostname>.local` via a static address entry, this makes `.local` resolvable even when avahi fails:
+  ```bash
+  sudo sed -i 's/mdns4_minimal/mdns4/g' /etc/nsswitch.conf
+  ```
+  
+  **Underlying router cause (DSA/VLAN setups)**: If `vlan_filtering=1` is set on `br-lan` and the LAN interface uses a VLAN sub-interface (`br-lan.1`), WiFi AP ports are added to the bridge by hostapd without explicit VLAN 1 membership. This prevents mDNS multicast from `br-lan.1` reaching WiFi clients. The setup script automatically installs a hotplug script (`/etc/hotplug.d/net/30-bridge-vlan-wifi`) to fix this on every boot when `MDNS_ENGINE=avahi` is set. Requires `ip-bridge` package (`apk add ip-bridge`).
+
 ## License
 MIT
