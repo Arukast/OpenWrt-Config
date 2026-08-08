@@ -16,6 +16,14 @@ CONF="/etc/telegram.conf"
 [ -f "$CONF" ] || { echo "ERROR: telegram.conf not found" >&2; exit 1; }
 . "$CONF"
 
+# Ensure timezone is set for date calculations
+if [ -z "$TZ" ]; then
+    SYS_TZ=$(uci -q get system.@system[0].timezone)
+    [ -n "$SYS_TZ" ] && export TZ="$SYS_TZ"
+else
+    export TZ
+fi
+
 # Sanitize GAS_URL (remove trailing \r, \n, and spaces)
 GAS_URL=$(echo "$GAS_URL" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 

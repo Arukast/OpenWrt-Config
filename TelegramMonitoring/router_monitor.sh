@@ -12,6 +12,14 @@ CONF="/etc/telegram.conf"
 [ -f "$CONF" ] || { echo "ERROR: telegram.conf not found"; exit 1; }
 . "$CONF"
 
+# Ensure timezone is set for date calculations
+if [ -z "$TZ" ]; then
+    SYS_TZ=$(uci -q get system.@system[0].timezone)
+    [ -n "$SYS_TZ" ] && export TZ="$SYS_TZ"
+else
+    export TZ
+fi
+
 # Load language
 LANG_DIR=${LANG_DIR:-"/etc/telegram_lang"}
 [ -d "$(dirname "$0")/lang" ] && LANG_DIR="$(dirname "$0")/lang"

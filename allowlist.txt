@@ -1,0 +1,10 @@
+cat /etc/adblock-lean/allowlist 
+googleads.g.doubleclick.net
+ep1.adtrafficquality.google.com
+ep1.adtrafficquality.google
+adservice.google.com
+tpc.googlesyndication.com
+pagead2.googlesyndication.com
+adtrafficquality.google.com
+adtrafficquality.google
+static.cloudflareinsights.com
