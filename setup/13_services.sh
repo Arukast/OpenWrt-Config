@@ -64,9 +64,13 @@ sleep 1
 MASTER=$(ip link show dev "$INTERFACE" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="master"){print $(i+1);exit}}')
 [ "$MASTER" = "br-lan" ] || exit 0
 [ "$(cat /sys/class/net/br-lan/bridge/vlan_filtering 2>/dev/null)" = "1" ] || exit 0
-# Get UCI network name for this interface via ubus
+# Get UCI network name for this interface via ubus (unpack array with [*])
 _net=$(ubus call network.wireless status 2>/dev/null | \
-    jsonfilter -e "@.*.interfaces[@.ifname=\"${INTERFACE}\"].config.network" 2>/dev/null | head -1)
+    jsonfilter -e "@.*.interfaces[@.ifname=\"${INTERFACE}\"].config.network[*]" 2>/dev/null | tr -d '[]" ' | head -1)
+if [ -z "$_net" ]; then
+    _sec=$(uci show wireless 2>/dev/null | grep "ifname='${INTERFACE}'" | awk -F'.' '{print $2}' | head -1)
+    [ -n "$_sec" ] && _net=$(uci -q get wireless.${_sec}.network | awk '{print $1}')
+fi
 [ -n "$_net" ] || exit 0
 # Derive VLAN from network device (e.g. br-lan.80 → 80; br-lan.1 → 1)
 _dev=$(uci -q get network.${_net}.device 2>/dev/null)
@@ -86,7 +90,11 @@ HOTPLUG_EOF
                 # handles LAN (VLAN 1), IoT (VLAN 80), and any other VLAN networks.
                 for _wif in $(ip link show master br-lan 2>/dev/null | grep -oE 'phy[0-9]+-ap[0-9]+'); do
                     _net=$(ubus call network.wireless status 2>/dev/null | \
-                        jsonfilter -e "@.*.interfaces[@.ifname=\"${_wif}\"].config.network" 2>/dev/null | head -1)
+                        jsonfilter -e "@.*.interfaces[@.ifname=\"${_wif}\"].config.network[*]" 2>/dev/null | tr -d '[]" ' | head -1)
+                    if [ -z "$_net" ]; then
+                        _sec=$(uci show wireless 2>/dev/null | grep "ifname='${_wif}'" | awk -F'.' '{print $2}' | head -1)
+                        [ -n "$_sec" ] && _net=$(uci -q get wireless.${_sec}.network | awk '{print $1}')
+                    fi
                     [ -n "$_net" ] || continue
                     _dev=$(uci -q get network.${_net}.device 2>/dev/null)
                     _vlan=$(echo "$_dev" | grep -oE '\.[0-9]+$' | tr -d '.')
