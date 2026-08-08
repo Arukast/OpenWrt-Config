@@ -8,3 +8,7 @@ GAS_URL="https://script.google.com/macros/s/YOUR_SCRIPT_ID_HERE/exec"
 # Language and Language Directory
 LANG="en"
 LANG_DIR="/etc/telegram_lang"
+
+# Optional: Timezone override (e.g. "WIB-7" for UTC+7 Asia/Jakarta)
+# If left empty/unset, system UCI timezone (system.@system[0].timezone) will be used.
+# TZ="WIB-7"
