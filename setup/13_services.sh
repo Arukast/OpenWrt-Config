@@ -29,6 +29,21 @@ enable_services() {
             [ -f /etc/init.d/nlbwmon ] && { service nlbwmon stop 2>/dev/null || true; service nlbwmon disable 2>/dev/null || true; }
         fi
 
+        case "${MDNS_ENGINE:-umdns}" in
+            umdns)
+                [ -f /etc/init.d/umdns ] && service umdns enable
+                [ -f /etc/init.d/avahi-daemon ] && { service avahi-daemon stop 2>/dev/null || true; service avahi-daemon disable 2>/dev/null || true; }
+                ;;
+            avahi)
+                [ -f /etc/init.d/avahi-daemon ] && service avahi-daemon enable
+                [ -f /etc/init.d/umdns ] && { service umdns stop 2>/dev/null || true; service umdns disable 2>/dev/null || true; }
+                ;;
+            none|0)
+                [ -f /etc/init.d/umdns ] && { service umdns stop 2>/dev/null || true; service umdns disable 2>/dev/null || true; }
+                [ -f /etc/init.d/avahi-daemon ] && { service avahi-daemon stop 2>/dev/null || true; service avahi-daemon disable 2>/dev/null || true; }
+                ;;
+        esac
+
         sysctl -p /etc/sysctl.d/99-custom.conf 2>/dev/null || true
 
         # Write post-reboot init
@@ -42,6 +57,8 @@ wifi reload
 /etc/init.d/https-dns-proxy restart
 /etc/init.d/dnsmasq         restart
 /etc/init.d/firewall        restart
+[ -f /etc/init.d/umdns ]        && /etc/init.d/umdns restart
+[ -f /etc/init.d/avahi-daemon ] && /etc/init.d/avahi-daemon restart
 [ -f /etc/init.d/adblock-lean ] && /etc/init.d/adblock-lean start
 [ -f /etc/init.d/tailscale    ] && /etc/init.d/tailscale    restart && sleep 3 && [ -x /usr/sbin/tailscale ] && /usr/sbin/tailscale up --accept-dns=false 2>/dev/null
 rm -f /etc/rc.local

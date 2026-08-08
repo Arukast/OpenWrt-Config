@@ -61,6 +61,18 @@ exec /usr/bin/wget.orig -4 "$@"
         run_cmd apk add ddns-scripts ddns-scripts-services && log_ok "DDNS packages installed." || log_warn "DDNS packages install failed."
     fi
 
+    case "${MDNS_ENGINE:-umdns}" in
+        umdns)
+            run_cmd apk add umdns && log_ok "umdns package installed." || log_warn "umdns package install failed."
+            ;;
+        avahi)
+            run_cmd apk add avahi-daemon && log_ok "avahi-daemon package installed." || log_warn "avahi-daemon package install failed."
+            ;;
+        none|0)
+            log_info "mDNS engine set to none. Skipping mDNS package installation."
+            ;;
+    esac
+
     BLOAT_PKGS="luci-app-statistics rrdtool1 librrd1 libgd libjpeg-turbo libpng libwebp netdata mwan3 luci-app-mwan3 ttyd luci-app-ttyd adblock luci-app-adblock"
     for pkg in $BLOAT_PKGS; do
         if apk info "$pkg" >/dev/null 2>&1; then

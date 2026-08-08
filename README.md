@@ -4,7 +4,7 @@ Automated configuration and advanced monitoring suite for OpenWrt routers. This 
 
 ## Features
 
-- **Automated Setup (`OpenWrtSetup.sh`)**: Configures WISP, LAN, WiFi, Tailscale, SQM (CAKE), DNS over HTTPS (DoH), and ZRAM with a single script. Supports Dry-Run and idempotency.
+- **Automated Setup (`OpenWrtSetup.sh`)**: Configures WISP, LAN, WiFi, Tailscale, SQM (CAKE), DNS over HTTPS (DoH), mDNS/ZeroConf (`umdns`/`avahi`), and ZRAM with a single script. Supports Dry-Run and idempotency.
 - **Verification (`OpenWrtSetupTest.sh`)**: Validates system health, network configurations, storage limits, and routing post-setup.
 - **Telegram Monitoring**: Real-time alerts for system resources, VPN status, brute-force attempts, and client connections.
 - **Multi-language Support**: Telegram alerts support English (`en`) and Indonesian (`id`).

@@ -125,6 +125,31 @@ setup_firewall() {
         log_info "DNS-over-TLS (DoT) block rule disabled."
     fi
 
+    # Configure mDNS (UDP 5353) firewall rules
+    for r in $(uci show firewall 2>/dev/null | grep -E "name='Allow-mDNS'|name='Allow-IoT-mDNS'" | awk -F'.' '{print $2}' || true); do
+        [ -n "$r" ] && run_uci -q delete firewall.${r}
+    done
+
+    if [ "${MDNS_ENGINE:-umdns}" != "none" ] && [ "${MDNS_ENGINE:-umdns}" != "0" ]; then
+        run_uci add firewall rule
+        run_uci set firewall.@rule[-1].name='Allow-mDNS'
+        run_uci set firewall.@rule[-1].src='lan'
+        run_uci set firewall.@rule[-1].dest_port='5353'
+        run_uci set firewall.@rule[-1].proto='udp'
+        run_uci set firewall.@rule[-1].target='ACCEPT'
+        log_info "mDNS (UDP 5353) firewall rule enabled."
+
+        if uci -q get firewall.iot_zone >/dev/null || uci show firewall 2>/dev/null | grep -q "name='iot'"; then
+            run_uci add firewall rule
+            run_uci set firewall.@rule[-1].name='Allow-IoT-mDNS'
+            run_uci set firewall.@rule[-1].src='iot'
+            run_uci set firewall.@rule[-1].dest_port='5353'
+            run_uci set firewall.@rule[-1].proto='udp'
+            run_uci set firewall.@rule[-1].target='ACCEPT'
+            log_info "mDNS (UDP 5353) firewall rule enabled for IoT zone."
+        fi
+    fi
+
     run_uci commit firewall
     log_ok "Firewall config committed."
 }

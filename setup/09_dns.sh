@@ -93,5 +93,31 @@ setup_dns() {
         run_cmd /etc/init.d/odhcpd stop 2>/dev/null || true
     fi
     run_uci commit dhcp
-    log_ok "DNS config committed."
+
+    # --- mDNS / ZeroConf Setup ---
+    case "${MDNS_ENGINE:-umdns}" in
+        umdns)
+            log_info "Configuring umdns micro daemon..."
+            [ -f /etc/config/umdns ] || run_cmd touch /etc/config/umdns
+            run_uci set umdns.lan=listen
+            run_uci set umdns.lan.interface='lan'
+            if uci -q get network.iot >/dev/null; then
+                run_uci set umdns.iot=listen
+                run_uci set umdns.iot.interface='iot'
+            fi
+            run_uci commit umdns
+            ;;
+        avahi)
+            log_info "Configuring avahi-daemon reflector..."
+            if [ -f /etc/avahi/avahi-daemon.conf ]; then
+                sed -i 's/^#*enable-reflector=.*/enable-reflector=yes/' /etc/avahi/avahi-daemon.conf
+                sed -i 's/^#*use-ipv6=.*/use-ipv6='"${ENABLE_IPV6:-1}"'/' /etc/avahi/avahi-daemon.conf
+            fi
+            ;;
+        none|0)
+            log_info "mDNS engine set to none."
+            ;;
+    esac
+
+    log_ok "DNS and mDNS config committed."
 }

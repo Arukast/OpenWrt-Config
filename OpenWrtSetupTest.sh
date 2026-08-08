@@ -730,6 +730,32 @@ if [ "${ENABLE_WG_DDNS:-0}" = "1" ]; then
 fi
 
 # =============================================================================
+# 10. mDNS / ZeroConf
+# =============================================================================
+section "10. mDNS / ZeroConf"
+
+_mdns_engine=${MDNS_ENGINE:-"umdns"}
+case "$_mdns_engine" in
+    umdns)
+        if pgrep umdns >/dev/null 2>&1 || [ -f /etc/init.d/umdns ]; then
+            pass "umdns service is installed and configured"
+        else
+            fail "umdns daemon service is not installed/running" "apk add umdns && /etc/init.d/umdns enable && /etc/init.d/umdns start"
+        fi
+        ;;
+    avahi)
+        if pgrep avahi-daemon >/dev/null 2>&1 || [ -f /etc/init.d/avahi-daemon ]; then
+            pass "avahi-daemon service is installed and configured"
+        else
+            fail "avahi-daemon service is not installed/running" "apk add avahi-daemon && /etc/init.d/avahi-daemon enable && /etc/init.d/avahi-daemon start"
+        fi
+        ;;
+    none|0)
+        pass "mDNS engine is disabled (MDNS_ENGINE=none)"
+        ;;
+esac
+
+# =============================================================================
 # SUMMARY
 # =============================================================================
 TOTAL=$((PASS + FAIL + WARN))
